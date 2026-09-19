@@ -1,10 +1,12 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import "./styles.css";
+import Landing from "./Landing";
+
+const isWorkbench = new URLSearchParams(window.location.search).has("workbench");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    {isWorkbench ? <App /> : <Landing />}
   </React.StrictMode>,
 );
