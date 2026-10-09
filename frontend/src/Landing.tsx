@@ -225,7 +225,7 @@ export default function Landing() {
         </section>
       </main>
 
-      <footer className="site-footer"><a className="brand" href="#overview"><span className="brand-symbol">S</span><span>ShopMind <b>AI</b></span></a><p>Conversational shopping, made explainable.</p><div><a href="https://github.com/Pyper000/Ecommerce_portfolio">GitHub</a><a href="#overview">Portfolio</a><a href="mailto:hello@shopmind.ai">Contact</a></div></footer>
+      <footer className="site-footer"><a className="brand" href="#overview"><span className="brand-symbol">S</span><span>ShopMind <b>AI</b></span></a><p>模拟商品与预设场景演示；未连接在线大模型。</p><div><a href="https://github.com/Pyper000/Pyper000.github.io">GitHub</a><a href="#overview">Portfolio</a></div></footer>
     </div>
   );
 }

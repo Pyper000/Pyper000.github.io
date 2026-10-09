@@ -3,7 +3,8 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import Landing from "./Landing";
 
-const isWorkbench = new URLSearchParams(window.location.search).has("workbench");
+const isWorkbench = !window.location.hostname.endsWith(".github.io") &&
+  new URLSearchParams(window.location.search).has("workbench");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
