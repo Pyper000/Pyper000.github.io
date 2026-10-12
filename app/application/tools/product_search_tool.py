@@ -105,6 +105,9 @@ def build_product_search_tool(usecase: CatalogSearchUseCase, bus: TradeEventBus)
                 # 商品卡随事件下发，前端无需再调接口即可渲染（含 landed_price 到手价）
                 "hits": result["hits"],
                 "shopping_task": shopping_task,
+                "filtered_out": result.get("filtered_out", []),
+                "total_candidates": result["total_candidates"],
+                "rerank_applied": result["rerank_applied"],
             },
         )
         return ToolChunk(

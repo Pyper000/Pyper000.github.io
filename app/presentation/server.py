@@ -28,7 +28,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -56,6 +56,8 @@ _TURN_COUNTER_TTL_SECONDS = 86400
 
 def build_app() -> FastAPI:
     state: dict = {}
+    active_sessions: set[str] = set()
+    request_times: dict[str, list[float]] = {}
 
     async def _forward_remote_events(c: Container) -> None:
         """把其他进程（worker）广播的事件转发给本进程的 WS 订阅者。"""
@@ -131,7 +133,7 @@ def build_app() -> FastAPI:
         }
 
     @api.post("/commerce/intents", response_model=SubmitIntentResponse)
-    async def submit_intent(body: SubmitIntentRequest) -> SubmitIntentResponse:
+    async def submit_intent(body: SubmitIntentRequest, request: Request) -> SubmitIntentResponse:
         c = container()
         session_id = body.shopping_session_id or f"session-{uuid.uuid4().hex[:8]}"
         intent = SubmitIntentInput(
@@ -142,10 +144,35 @@ def build_app() -> FastAPI:
             raw_query=body.raw_query,
         )
         if c.task_queue is None:
-            result = await c.orchestrator.handle_intent(intent)
-            return SubmitIntentResponse(
-                shopping_session_id=result.shopping_session_id, final_text=result.final_text,
-            )
+            now = time.monotonic()
+            for address in list(request_times):
+                request_times[address] = [t for t in request_times[address] if now - t < 3600]
+                if not request_times[address]:
+                    del request_times[address]
+            address = request.client.host if request.client else "unknown"
+            times = request_times.setdefault(address, [])
+            if len(times) >= 30 or len(active_sessions) >= 2:
+                raise HTTPException(status_code=429, detail="演示服务繁忙或达到每小时调用上限，请稍后重试")
+            if session_id in active_sessions:
+                raise HTTPException(status_code=409, detail="当前会话仍在处理中")
+            times.append(now)
+            active_sessions.add(session_id)
+            trace = c.bus.subscribe(session_id)
+            try:
+                result = await asyncio.wait_for(c.orchestrator.handle_intent(intent), timeout=150)
+                events = []
+                while not trace.empty():
+                    event = trace.get_nowait()
+                    if event.type in {"plan.update", "tool.invoke", "tool.result", "agent.dispatch", "error"}:
+                        events.append({"type": event.type, "payload": event.payload, "occurred_at": event.occurred_at})
+                return SubmitIntentResponse(
+                    shopping_session_id=result.shopping_session_id, final_text=result.final_text, events=events,
+                )
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=504, detail="处理超时，请稍后重试")
+            finally:
+                c.bus.unsubscribe(session_id, trace)
+                active_sessions.discard(session_id)
 
         task_id = await _enqueue(c, intent)
         final_text = await _await_result(c, task_id, session_id)

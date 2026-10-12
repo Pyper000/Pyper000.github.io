@@ -32,6 +32,9 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+        env:
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+          VITE_CHAT_BASE: ${{ vars.VITE_CHAT_BASE }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist

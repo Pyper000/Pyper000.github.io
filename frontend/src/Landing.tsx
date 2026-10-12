@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import "./landing.css";
+import LiveChat from "./components/LiveChat";
 
 type Product = {
   name: string;
@@ -143,7 +144,7 @@ export default function Landing() {
         <nav className={menuOpen ? "site-nav open" : "site-nav"}>
           {["Overview", "Dual Modes", "Orchestration", "Demo"].map((item) => <a key={item} href={`#${item === "Overview" ? "overview" : item === "Dual Modes" ? "modes" : item.toLowerCase()}`} onClick={() => setMenuOpen(false)}>{item}</a>)}
         </nav>
-        <div className="header-actions"><a className="case-link" href="#orchestration">View Case Study <span>↗</span></a><a className="primary-btn compact" href="#demo">Try Demo <span>↗</span></a></div>
+        <div className="header-actions"><a className="case-link" href="#orchestration">View Case Study <span>↗</span></a><a className="primary-btn compact" href="#live">真实对话 <span>↗</span></a></div>
       </header>
 
       <main>
@@ -223,9 +224,10 @@ export default function Landing() {
             </div>
           </div>
         </section>
+        <LiveChat />
       </main>
 
-      <footer className="site-footer"><a className="brand" href="#overview"><span className="brand-symbol">S</span><span>ShopMind <b>AI</b></span></a><p>模拟商品与预设场景演示；未连接在线大模型。</p><div><a href="https://github.com/Pyper000/Pyper000.github.io">GitHub</a><a href="#overview">Portfolio</a></div></footer>
+      <footer className="site-footer"><a className="brand" href="#overview"><span className="brand-symbol">S</span><span>ShopMind <b>AI</b></span></a><p>模拟商品目录；上方预设原型，下方真实模型对话。</p><div><a href="https://github.com/Pyper000/Pyper000.github.io">GitHub</a><a href="#overview">Portfolio</a></div></footer>
     </div>
   );
 }

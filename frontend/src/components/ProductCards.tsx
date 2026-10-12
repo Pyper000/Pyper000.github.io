@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ProductCard, TradeEvent } from "../types";
 
 function cardGroups(events: TradeEvent[]): { task: string; cards: ProductCard[] }[] {
@@ -24,18 +25,23 @@ function cardGroups(events: TradeEvent[]): { task: string; cards: ProductCard[] 
   return [...groups].map(([task, cards]) => ({ task, cards }));
 }
 
-export default function ProductCards({ events }: { events: TradeEvent[] }) {
+export default function ProductCards({ events, onCompare, busy }: { events: TradeEvent[]; onCompare: (query: string) => void; busy: boolean }) {
   const groups = cardGroups(events);
+  const [selected, setSelected] = useState<string[]>([]);
+  const available = new Set(groups.flatMap(group => group.cards.map(card => card.product_id)));
+  const compared = selected.filter(id => available.has(id));
   if (!groups.length) return null;
 
   return (
     <div className="product-groups">
+      {compared.length >= 2 && <button type="button" disabled={busy} onClick={() => onCompare(`请比较这些商品：${compared.join("、")}。结合我已说明的目标和条件，解释差异与不足，最后给出首选。`)}>比较已选商品（{compared.length}）</button>}
       {groups.map(({ task, cards }) => (
         <section className="product-group" key={task}>
           <h4>{task}</h4>
           <div className="cards">
             {cards.map((card) => (
         <article key={card.product_id} className="card">
+          <label><input type="checkbox" checked={compared.includes(card.product_id)} disabled={busy || (!compared.includes(card.product_id) && compared.length >= 3)} onChange={() => setSelected(compared.includes(card.product_id) ? compared.filter(id => id !== card.product_id) : [...compared, card.product_id])} /> 加入比较</label>
           <header>
             <strong>{card.title}</strong>
             <span className="brand">

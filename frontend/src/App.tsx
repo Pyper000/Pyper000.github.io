@@ -6,7 +6,7 @@ import type { ShoppingPlan, TradeEvent } from "./types";
 const localApiBase = `${window.location.protocol}//${window.location.hostname || "127.0.0.1"}:8000`;
 const isLocalVite = window.location.port === "5173" || window.location.port === "5174";
 const API_BASE =
-  import.meta.env.VITE_API_BASE || (isLocalVite ? localApiBase : window.location.origin);
+  import.meta.env.VITE_API_BASE || (isLocalVite ? localApiBase : window.location.hostname.endsWith(".github.io") ? "" : window.location.origin);
 const WS_BASE = API_BASE.replace(/^http/, "ws");
 
 const UI = {
@@ -144,7 +144,7 @@ function latestEvent(events: TradeEvent[], type: TradeEvent["type"], tool?: stri
 }
 
 export default function App() {
-  const [sessionId] = useState(() => loadOrCreate("ecommerce.session", "web"));
+  const [sessionId, setSessionId] = useState(() => loadOrCreate("ecommerce.session", "web"));
   const [buyerId] = useState(() => loadOrCreate("ecommerce.buyer", "buyer"));
   const [events, setEvents] = useState<TradeEvent[]>([]);
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -162,7 +162,7 @@ export default function App() {
     let retryTimer: number | undefined;
 
     const connect = () => {
-      if (closed) return;
+      if (closed || !API_BASE) return;
       const ws = new WebSocket(`${WS_BASE}/commerce/events`);
       wsRef.current = ws;
       ws.onopen = () => {
@@ -184,10 +184,6 @@ export default function App() {
           return;
         }
         setEvents((prev) => [...prev, event]);
-        if (event.type === "final.result") {
-          setStreaming("");
-          setTurns((prev) => [...prev, { role: "agent", text: event.payload.text ?? "" }]);
-        }
       };
     };
 
@@ -202,11 +198,17 @@ export default function App() {
   const submit = async (suggestedQuery?: string) => {
     const query = (suggestedQuery ?? input).trim();
     if (!query || busy) return;
+    if (!API_BASE) {
+      setTurns((prev) => [...prev, { role: "agent", text: "在线服务正在部署，当前无法调用大模型。请稍后重试；本页不会用预设回复替代真实回答。" }]);
+      return;
+    }
     setInput("");
     setBusy(true);
+    setStreaming("");
+    setEvents([]);
     setTurns((prev) => [...prev, { role: "buyer", text: query }]);
     try {
-      await fetch(`${API_BASE}/commerce/intents`, {
+      const response = await fetch(`${API_BASE}/commerce/intents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -216,10 +218,16 @@ export default function App() {
           currency: "CNY",
           raw_query: query,
         }),
+        signal: AbortSignal.timeout(180000),
       });
+      if (!response.ok) throw new Error(`服务返回 ${response.status}，请稍后重试`);
+      const result = await response.json();
+      if (result.events) setEvents(result.events);
+      setTurns((prev) => [...prev, { role: "agent", text: result.final_text }]);
     } catch (error) {
       setTurns((prev) => [...prev, { role: "agent", text: `[error] 请求失败：${error}` }]);
     } finally {
+      setStreaming("");
       setBusy(false);
     }
   };
@@ -274,6 +282,11 @@ export default function App() {
           </div>
         </div>
         <div className="topbar-actions">
+          <button type="button" disabled={busy} onClick={() => {
+            const id = `web-${crypto.randomUUID()}`;
+            localStorage.setItem("ecommerce.session", id);
+            setSessionId(id); setTurns([]); setEvents([]); setStreaming("");
+          }}>新对话</button>
           <div className="view-switch" aria-label="Preview mode">
             <button
               className={previewMode === "desktop" ? "active" : ""}
@@ -459,7 +472,7 @@ export default function App() {
                     {searchPayload.hit_count !== undefined ? `${searchPayload.hit_count}` : "--"}
                   </span>
                 </div>
-                <ProductCards events={events} />
+                <ProductCards events={events} onCompare={(query) => void submit(query)} busy={busy} />
               </div>
 
               <div className="insight-panel">
