@@ -11,7 +11,7 @@ export default function LiveChat() {
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result>();
   const [selected, setSelected] = useState<string[]>([]);
-  const base = import.meta.env.VITE_CHAT_BASE || (location.hostname.endsWith('.github.io') ? '' : location.origin);
+  const base = import.meta.env.VITE_CHAT_BASE || (location.hostname.endsWith('.github.io') ? 'https://pyper000-github-io.vercel.app' : location.origin);
   async function send(query = input, retry = false) {
     if (!query.trim() || busy) return;
     if (!base) { setError('真实对话服务正在部署，请稍后再试。'); return; }
