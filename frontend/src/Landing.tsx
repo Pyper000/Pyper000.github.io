@@ -156,7 +156,11 @@ export default function Landing() {
           <div className="hero-console reveal delayed">
             <div className="console-header"><div>ShopMind Assistant</div><span>场景示例 · 模拟商品</span></div>
             <div className="console-chat"><div className="mini-message user">想让每天通勤轻松一点，但不知道买什么</div><div className="mini-message ai">每天通勤确实不容易。你最想改善的是噪音、背包太重，还是路上不舒服？</div></div>
-            <div className="console-chat"><div className="mini-message user">背包太重，想轻便一些。</div><div className="mini-message ai">可以先看换小包或整理随身物品两个方向。BudgetPack 20L 简易背包（39元）适合作为换包候选；ZipPouch 证件收纳包（69元）方便集中小物件，但不会直接减轻重量。你每天需要带电脑吗？目录未提供包体重量和电脑隔层，暂不能确认适配。</div></div>
+            <div className="console-chat"><div className="mini-message user">背包太重，想轻便一些。</div><div className="mini-message ai">可以先从减轻包内零散物品、或换小容量背包两个方向入手。下面是目录中的候选；目录没有包体重量信息，暂不能确认它一定更轻。你每天需要带电脑吗？</div></div>
+            <div className="mini-products">
+              <article className="mini-product"><div className="mini-product-art blue" /><div><b>ZipPouch RFID 证件收纳包</b><span>CNY 69 · 方便集中小物件</span></div></article>
+              <article className="mini-product"><div className="mini-product-art violet" /><div><b>BudgetPack 20L 简易背包</b><span>CNY 39 · 小容量候选，重量未提供</span></div></article>
+            </div>
             <div className="console-glow" />
           </div>
         </section>
@@ -214,7 +218,7 @@ export default function Landing() {
                 <div className="message-wrap ai-wrap"><span>SHOPMIND</span><div className="demo-message ai">{scenario.question}</div></div>
                 <div className="message-wrap user-wrap"><span>YOU · 示例补充</span><div className="demo-message user">{scenario.answer}</div></div>
                 <div className="message-wrap ai-wrap"><span>SHOPMIND</span><div className="demo-message ai">{thinking ? <span className="loading-dots"><i /><i /><i /></span> : typedReply}{typing && <span className="typing-caret">|</span>}</div></div>
-                {!thinking && typedReply && <><div className="insight-chips">{scenario.chips.map((chip) => <span key={chip}>{chip}</span>)}</div><div className="recommendation-block"><div className="recommendation-title"><span>RECOMMENDATION DIRECTIONS</span><b>推荐方向</b></div><div className="direction-list">{scenario.directions.map((direction) => <span key={direction}>{direction}</span>)}</div></div><div className="demo-product-grid">{scenario.products.map((product) => <ProductCard key={product.name} product={product} compared={compared.includes(product.name)} onCompare={() => toggleCompare(product.name)} />)}</div></>}
+                {!thinking && typedReply && <><div className="insight-chips">{scenario.chips.map((chip) => <span key={chip}>{chip}</span>)}</div><div className="recommendation-block"><div className="recommendation-title"><span>根据当前信息整理的候选</span><b>可继续调整</b></div><div className="direction-list">{scenario.directions.map((direction) => <span key={direction}>{direction}</span>)}</div></div><div className="demo-product-grid">{scenario.products.map((product) => <ProductCard key={product.name} product={product} compared={compared.includes(product.name)} onCompare={() => toggleCompare(product.name)} />)}</div></>}
               </div>
               <a className="secondary-btn" href="#live">用自己的需求开始真实对话 ↗</a>
             </div>

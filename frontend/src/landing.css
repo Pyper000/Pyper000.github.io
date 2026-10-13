@@ -56,14 +56,25 @@
 .site-nav { gap: 18px; }
 section { scroll-margin-top: 90px; }
 @media (max-width: 760px) { .hero-subtitle { font-size: 24px; } .live-section .section-heading h2 { font-size: 26px; } .live-section .demo-composer input { font-size: 14px; } }
-.live-console { overflow: hidden; border: 1px solid #ffffff30; border-radius: 8px; background: linear-gradient(140deg,#ffffff0f,#ffffff06); backdrop-filter: blur(18px); box-shadow: inset 0 1px #ffffff0d; padding: 24px; }
-.live-console-head { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #ffffff20; color: #e4eaf2; font-size: 14px; }
-.live-console-head span { color: #a4b7bd; font-size: 12px; }
-.live-console .live-messages { min-height: 230px; }
-.live-console .live-message { background: #ffffff0b; border: 1px solid #ffffff25; }
-.live-console .live-message.user { background: #6a77b330; }
-.live-console .demo-composer { position: static; border: 1px solid #ffffff65; background: #ffffff29; backdrop-filter: blur(24px); box-shadow: inset 0 1px #ffffff30; }
-.live-console .demo-composer:focus-within { background: #ffffff36; border-color: #b3e1d6; }
-.live-console .demo-composer input { color: #fff; }
-.live-console .demo-composer input::placeholder { color: #d0d8e1; }
-@media (max-width: 650px) { .live-console { padding: 16px; } .live-console-head { flex-wrap: wrap; } }
+.live-console { overflow: hidden; border: 1px solid rgba(169,181,238,.2); border-radius: 10px; background: linear-gradient(145deg,rgba(29,35,49,.78),rgba(17,21,28,.82)); backdrop-filter: blur(18px); box-shadow: inset 0 1px rgba(255,255,255,.04),0 20px 48px #0003; padding: 24px; }
+.live-console-head { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid rgba(178,189,255,.13); color: #cbd4e7; font-size: 12px; }
+.live-console-head span { color: #8995ae; font-size: 10px; }
+.live-console .live-messages { min-height: 0; max-height: 420px; margin: 18px 0; }
+.live-console .live-message { background: rgba(255,255,255,.045); border: 1px solid rgba(194,204,240,.12); }
+.live-console .live-message.user { background: rgba(108,124,255,.13); }
+.live-console .live-message small { color: #8f9bb5; font-size: 10px; }
+.live-console .live-message p { font-size: 13px; line-height: 1.7; }
+.live-console .demo-composer { position: static; min-height: 58px; border: 1px solid rgba(177,190,230,.32); border-radius: 8px; background: rgba(235,240,255,.12); backdrop-filter: blur(24px); box-shadow: inset 0 1px rgba(255,255,255,.08); }
+.live-console .demo-composer:focus-within { background: rgba(235,240,255,.17); border-color: rgba(160,176,255,.65); }
+.live-console .demo-composer input { color: #e7ecf8; font-size: 13px; }
+.live-console .demo-composer input::placeholder { color: #9ba7bf; }
+.live-console .demo-composer button { flex-basis: 38px; width: 38px; height: 38px; background: #626fe0; font-size: 21px; }
+.hero-console .console-chat { padding: 16px 2px 8px; }
+.hero-console .mini-message { font-size: 11px; }
+.hero-console .mini-products { position: relative; z-index: 1; grid-template-columns: repeat(2,minmax(0,1fr)); }
+.hero-console .mini-product { grid-template-columns: 30px minmax(0,1fr); gap: 8px; }
+.hero-console .mini-product-art { width: 30px; height: 30px; }
+.hero-console .mini-product b { font-size: 9px; }
+.hero-console .mini-product span { font-size: 8px; }
+.hero-console .mini-product em { display: none; }
+@media (max-width: 650px) { .live-console { padding: 16px; } .live-console-head { flex-wrap: wrap; } .hero-console .mini-products { grid-template-columns: minmax(0,1fr); } }
