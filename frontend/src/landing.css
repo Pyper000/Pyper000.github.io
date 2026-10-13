@@ -56,3 +56,14 @@
 .site-nav { gap: 18px; }
 section { scroll-margin-top: 90px; }
 @media (max-width: 760px) { .hero-subtitle { font-size: 24px; } .live-section .section-heading h2 { font-size: 26px; } .live-section .demo-composer input { font-size: 14px; } }
+.live-console { overflow: hidden; border: 1px solid #ffffff30; border-radius: 8px; background: linear-gradient(140deg,#ffffff0f,#ffffff06); backdrop-filter: blur(18px); box-shadow: inset 0 1px #ffffff0d; padding: 24px; }
+.live-console-head { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 18px; border-bottom: 1px solid #ffffff20; color: #e4eaf2; font-size: 14px; }
+.live-console-head span { color: #a4b7bd; font-size: 12px; }
+.live-console .live-messages { min-height: 230px; }
+.live-console .live-message { background: #ffffff0b; border: 1px solid #ffffff25; }
+.live-console .live-message.user { background: #6a77b330; }
+.live-console .demo-composer { position: static; border: 1px solid #ffffff65; background: #ffffff29; backdrop-filter: blur(24px); box-shadow: inset 0 1px #ffffff30; }
+.live-console .demo-composer:focus-within { background: #ffffff36; border-color: #b3e1d6; }
+.live-console .demo-composer input { color: #fff; }
+.live-console .demo-composer input::placeholder { color: #d0d8e1; }
+@media (max-width: 650px) { .live-console { padding: 16px; } .live-console-head { flex-wrap: wrap; } }

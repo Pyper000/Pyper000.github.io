@@ -156,7 +156,7 @@ export default function Landing() {
           <div className="hero-console reveal delayed">
             <div className="console-header"><div>ShopMind Assistant</div><span>场景示例 · 模拟商品</span></div>
             <div className="console-chat"><div className="mini-message user">想让每天通勤轻松一点，但不知道买什么</div><div className="mini-message ai">每天通勤确实不容易。你最想改善的是噪音、背包太重，还是路上不舒服？</div></div>
-            <div className="console-chat"><div className="mini-message user">背包太重，想轻便一些。</div><div className="mini-message ai">那先看收纳和减负。你每天需要带电脑吗？</div></div>
+            <div className="console-chat"><div className="mini-message user">背包太重，想轻便一些。</div><div className="mini-message ai">可以先看换小包或整理随身物品两个方向。BudgetPack 20L 简易背包（39元）适合作为换包候选；ZipPouch 证件收纳包（69元）方便集中小物件，但不会直接减轻重量。你每天需要带电脑吗？目录未提供包体重量和电脑隔层，暂不能确认适配。</div></div>
             <div className="console-glow" />
           </div>
         </section>
