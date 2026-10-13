@@ -21,6 +21,7 @@
 /* Live conversations share the portfolio palette and use unframed sections. */
 .live-section { padding: 64px 0; border-top: 1px solid #343a40; }
 .live-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.live-actions button { font-size: 14px; font-weight: 500; }
 .live-section button { cursor: pointer; padding: 10px 14px; border: 1px solid #454d57; background: #202730; color: #f2f5f7; border-radius: 6px; }
 .live-section button:disabled { opacity: .5; cursor: default; }
 .live-messages { display: grid; gap: 16px; margin: 24px 0; }
