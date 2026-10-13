@@ -1,8 +1,8 @@
-# Ecommerce - 跨境电商 Agent（AgentScope 2.0）
+# Shopmind - 跨境电商 Agent（AgentScope 2.0）
 
 ## 产品定位
 
-Ecommerce 是一个面向跨境购物的搜索与决策 Agent。它处理的不是单一关键词检索，而是类似：
+Shopmind 是一个面向跨境购物的搜索与决策 Agent。它处理的不是单一关键词检索，而是类似：
 
 > “我想买一套便宜又抗造的旅行三件套，预算 300 块，不要塑料，寄到美国。”
 
@@ -60,7 +60,7 @@ app/
 │   ├── usecases/      # CatalogSearch（二阶段召回+到手价内联）、PlaceOrder/QueryOrder/CancelOrder
 │   ├── tools/         # product_search、订单三工具、web_search、remember_preference、task_dispatch
 │   ├── agents/        # MainAgent / SearchAgent / TradeAgent 工厂 + Orchestrator + SessionRegistry
-│   └── prompts/       # ecommerce.yml：主 / 子 Agent 系统提示词
+│   └── prompts/       # Shopmind.yml：主 / 子 Agent 系统提示词
 ├── infrastructure/    # llm/embedding/qdrant/reranker/tracing、rag 知识库、缓存、队列、韧性与闸门、仓储
 ├── presentation/      # FastAPI 路由、WebSocket ConnectionManager、DTO
 ├── composition.py     # 装配容器（API 与 worker 共用一份接线）
@@ -155,7 +155,7 @@ uv run python scripts/eval_regression.py   # 评测回归：13 条 case，LLM ju
 - 产品案例说明：[`docs/portfolio-case-study.md`](docs/portfolio-case-study.md)
 - 评测数据：[`eval/product_recall.jsonl`](eval/product_recall.jsonl)
 - 在线部署配置：[`render.yaml`](render.yaml)
-- GitHub：https://github.com/Pyper000/Ecommerce
+- GitHub：https://github.com/Pyper000/Shopmind
 
 ## Docker 部署
 
