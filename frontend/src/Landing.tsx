@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./landing.css";
 import LiveChat from "./components/LiveChat";
 
@@ -16,6 +16,8 @@ type Scenario = {
   prompt: string;
   chips: string[];
   reply: string;
+  question: string;
+  answer: string;
   directions: string[];
   products: Product[];
 };
@@ -24,20 +26,23 @@ const scenarios: Scenario[] = [
   {
     id: "mother",
     prompt: "我想给妈妈买母亲节礼物，但我不确定买什么",
-    chips: ["送礼对象: 妈妈", "场景: 母亲节", "需求状态: 品类模糊"],
-    reply: "这是一个从送礼场景开始的需求，不需要急着猜一个商品名。我会先把“妈妈 + 母亲节”转成适合检索的礼物方向，再用一个偏好问题把结果收窄。",
-    directions: ["茶饮仪式感", "舒缓放松", "日常家居"],
+    chips: ["送礼对象: 妈妈", "预算: CNY 350", "配送地: 中国"],
+    question: "想送得贴心，可以从她平时的习惯入手。妈妈休息时最喜欢做什么？",
+    answer: "她喜欢喝茶，也喜欢布置家里。预算350元，寄中国。",
+    reply: "可以从茶饮器物、家居氛围两个方向看看。她已经有常用的茶具了吗？如果有，我们就换个方向。",
+    directions: ["茶饮仪式感", "日常家居"],
     products: [
       { name: "TerraCotta 粗陶茶具礼盒", category: "茶饮器物", price: "CNY 268", rating: "4.9", reason: "适合喜欢喝茶的妈妈，有仪式感且不容易踩雷。", accent: "violet" },
       { name: "AromaStone 无火扩香礼盒", category: "香氛家居", price: "CNY 99", rating: "4.8", reason: "送礼表达明确，对使用习惯要求低。", accent: "blue" },
-      { name: "WarmRest 颈肩热敷枕", category: "舒缓护理", price: "CNY 329", rating: "4.7", reason: "适合经常久坐或肩颈容易疲劳的场景。", accent: "sky" },
     ],
   },
   {
     id: "camp",
     prompt: "预算 500，想买一个适合露营的灯",
     chips: ["预算: CNY 500", "场景: 露营", "品类: 营地灯"],
-    reply: "我会把预算和使用场景作为硬条件，优先看续航、亮度、防水等级与挂载方式。价格合适但不耐户外使用的商品不会排到前面。",
+    question: "露营灯选对了，晚上会省心不少。你主要用来照亮营地，还是放在帐篷里？",
+    answer: "主要照亮营地，偶尔放帐篷里，寄中国。",
+    reply: "那主灯可以优先看照明范围和续航；折叠灯更方便收纳，应急灯适合备用。你更在意照得亮，还是携带轻便？",
     directions: ["长续航照明", "防水耐用", "轻量收纳"],
     products: [
       { name: "TrailGlow 1000 户外营地灯", category: "露营照明", price: "CNY 229", rating: "4.9", reason: "IPX6 防水，续航 40 小时，符合预算与露营场景。", accent: "sky" },
@@ -49,7 +54,9 @@ const scenarios: Scenario[] = [
     id: "headphones",
     prompt: "想买降噪耳机，通勤用",
     chips: ["场景: 通勤", "品类: 降噪耳机", "偏好: 隔绝噪音"],
-    reply: "通勤场景里，降噪强度并不是唯一指标。我会同时比较佩戴压力、通话表现和收纳便利性，避免推荐只适合安静室内的产品。",
+    question: "想让通勤安静一点。你更喜欢入耳式还是头戴式，或者还没决定？",
+    answer: "还没决定，预算400元，主要坐地铁，寄中国。",
+    reply: "可以先比较两种佩戴方式：头戴式不用塞进耳朵，入耳式更方便收纳。你平时戴入耳式会不舒服吗？",
     directions: ["主动降噪", "轻量佩戴", "稳定通话"],
     products: [
       { name: "QuietFold ANC Headphones", category: "头戴式耳机", price: "CNY 389", rating: "4.9", reason: "通勤降噪与可折叠收纳兼顾，适合地铁和飞机。", accent: "violet" },
@@ -65,10 +72,6 @@ function getScenario(query: string): Scenario {
   if (/露营|camp|营地|户外灯/.test(text)) return scenarios[1];
   if (/耳机|降噪|headphone|commute/.test(text)) return scenarios[2];
   return { ...scenarios[2], prompt: query, chips: ["自然语言需求", "待确认: 预算", "待确认: 使用场景"], reply: "我先把你的表达保留为一个购物任务。补充预算、使用场景或收货地中的任意一个条件后，我就能把推荐范围明显收窄。", directions: ["先确认使用场景", "补充预算范围", "选择优先偏好"] };
-}
-
-function ToolPill({ children, active = false }: { children: string; active?: boolean }) {
-  return <span className={`tool-pill ${active ? "is-active" : ""}`}>{children}</span>;
 }
 
 function ProductCard({ product, compared, onCompare }: { product: Product; compared: boolean; onCompare: () => void }) {
@@ -89,7 +92,6 @@ export default function Landing() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [scenario, setScenario] = useState(scenarios[0]);
   const [query, setQuery] = useState(scenarios[0].prompt);
-  const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(true);
   const [typing, setTyping] = useState(false);
   const [typedReply, setTypedReply] = useState("");
@@ -106,7 +108,6 @@ export default function Landing() {
     clearTimers();
     setScenario(next);
     setQuery(nextQuery);
-    setInput("");
     setThinking(true);
     setTyping(false);
     setTypedReply("");
@@ -129,11 +130,6 @@ export default function Landing() {
     return clearTimers;
   }, []);
 
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    if (input.trim()) runDemo(input.trim());
-  };
-
   const toggleCompare = (name: string) => setCompared((items) => items.includes(name) ? items.filter((item) => item !== name) : [...items, name]);
 
   return (
@@ -142,7 +138,7 @@ export default function Landing() {
         <a className="brand" href="#overview"><span className="brand-symbol">S</span><span>ShopMind <b>AI</b></span></a>
         <button className="menu-toggle" type="button" onClick={() => setMenuOpen((open) => !open)} aria-label="Open navigation"><span /><span /></button>
         <nav className={menuOpen ? "site-nav open" : "site-nav"}>
-          {["Overview", "Dual Modes", "Orchestration", "Demo"].map((item) => <a key={item} href={`#${item === "Overview" ? "overview" : item === "Dual Modes" ? "modes" : item.toLowerCase()}`} onClick={() => setMenuOpen(false)}>{item}</a>)}
+          {[["Overview", "overview"], ["Dual Modes", "modes"], ["Decision Flow", "orchestration"], ["Demo", "demo"], ["Product", "live"]].map(([item, anchor]) => <a key={item} href={`#${anchor}`} onClick={() => setMenuOpen(false)}>{item}</a>)}
         </nav>
         <div className="header-actions"><a className="case-link" href="#orchestration">View Case Study <span>↗</span></a><a className="primary-btn compact" href="#live">真实对话 <span>↗</span></a></div>
       </header>
@@ -151,27 +147,26 @@ export default function Landing() {
         <section className="hero" id="overview">
           <div className="hero-copy reveal">
             <p className="eyebrow">CONVERSATIONAL COMMERCE / 01</p>
-            <h1>让购物，从<span>“搜索”</span>变成“对话”</h1>
-            <p className="hero-text">一句话说清你的需求，AI 负责理解意图、调用工具、筛选商品，并给出可解释的推荐。</p>
-            <div className="hero-actions"><a className="primary-btn" href="#demo">开始体验 <span>↗</span></a><a className="secondary-btn" href="#orchestration">查看能力 <span>↓</span></a></div>
+            <h1>ShopMind AI</h1>
+            <h2 className="hero-subtitle">从“不知道买什么”，到找到适合你的选择。</h2>
+            <p className="hero-text">不必先想好商品名。聊聊你的生活场景、偏好或顾虑，ShopMind 通过必要的追问，帮你明确方向、筛选商品，再一起比较取舍。</p>
+            <div className="hero-actions"><a className="primary-btn" href="#live">开始购物对话 <span>↗</span></a><a className="secondary-btn" href="#orchestration">查看能力 <span>↓</span></a></div>
             <div className="capability-tags"><span>Intent Understanding</span><span>Tool Calling</span><span>Explainable Recommendations</span></div>
           </div>
           <div className="hero-console reveal delayed">
-            <div className="console-header"><div><span className="online-dot" /> AI Assistant Online</div><span>LIVE SESSION</span></div>
-            <div className="console-chat"><div className="mini-message user">预算 300，想买一个通勤双肩包，耐用一点</div><div className="mini-message ai">我会优先筛选：容量、耐磨材质、背负舒适度、预算区间。</div></div>
-            <div className="tool-row"><ToolPill active>parse_intent</ToolPill><ToolPill>search_products</ToolPill><ToolPill>rank_by_preferences</ToolPill></div>
-            <div className="mini-products">
-              <div className="mini-product"><div className="mini-product-art violet" /><div><b>MetroPack 22L</b><span>CNY 269 · 4.8</span></div><em>01</em></div>
-              <div className="mini-product"><div className="mini-product-art blue" /><div><b>Field Daypack</b><span>CNY 299 · 4.7</span></div><em>02</em></div>
-            </div>
+            <div className="console-header"><div>ShopMind Assistant</div><span>场景示例 · 模拟商品</span></div>
+            <div className="console-chat"><div className="mini-message user">想让每天通勤轻松一点，但不知道买什么</div><div className="mini-message ai">每天通勤确实不容易。你最想改善的是噪音、背包太重，还是路上不舒服？</div></div>
+            <div className="console-chat"><div className="mini-message user">背包太重，想轻便一些。</div><div className="mini-message ai">那先看收纳和减负。你每天需要带电脑吗？</div></div>
             <div className="console-glow" />
           </div>
         </section>
 
+        <LiveChat />
+
         <section className="value-section">
           <div className="section-heading"><p className="eyebrow">WHY SHOPMIND</p><h2>不是多一个聊天框，<span>而是多一条决策链路。</span></h2></div>
           <div className="value-grid">
-            {[["01", "⌁", "识别意图", "从自然语言提取预算、偏好、场景、品类，让模糊需求也能进入搜索。"], ["02", "⌘", "调用工具", "结构化调用商品库、检索、排序与物流信息，把回答建立在可用数据上。"], ["03", "✦", "可解释推荐", "告诉用户为什么推荐、为什么过滤，而不是只丢出没有理由的结果列表。"]].map(([index, icon, title, text]) => (
+            {[["01", "⌁", "理解生活场景", "从送礼对象、日常习惯和使用困扰出发，而不只匹配商品关键词。"], ["02", "⌘", "问清关键条件", "每次优先追问一个影响选择的问题，逐步明确偏好、预算与收货地。"], ["03", "✦", "帮助比较取舍", "依据商品信息解释适合谁、有哪些不足，并根据反馈调整推荐。"]].map(([index, icon, title, text]) => (
               <article className="value-card" key={title}><span className="value-index">{index}</span><div className="value-icon">{icon}</div><h3>{title}</h3><p>{text}</p></article>
             ))}
           </div>
@@ -195,17 +190,17 @@ export default function Landing() {
         </section>
 
         <section className="orchestration-section" id="orchestration">
-          <div className="section-heading"><p className="eyebrow">ORCHESTRATION LAYER</p><h2>把“我想买什么”，<span>编排成可执行的工具链。</span></h2></div>
+          <div className="section-heading"><p className="eyebrow">DECISION FLOW</p><h2>不必一次说清，<span>好的选择可以聊出来。</span></h2></div>
           <div className="flow-scroll"><div className="flow">
-            {[["01", "User Query", "接收自然语言、关键词或多轮补充"], ["02", "Intent Parser", "识别场景、对象、品类、预算与偏好"], ["03", "Tool Router", "根据任务选择检索、库存、物流等工具"], ["04", "Product Search", "关键词与语义检索共同召回候选商品"], ["05", "Ranking", "依据约束和偏好重排，并剔除不可购结果"], ["06", "Response Composer", "组织解释、推荐理由和下一步问题"]].map(([number, title, text], index, items) => (
+            {[["01", "表达目标", "想改善什么、给谁买、在哪种场景使用"], ["02", "关键追问", "了解生活习惯与顾虑，不重复问已提供的信息"], ["03", "形成方向", "把模糊目标转成可选择的商品方向"], ["04", "检索与过滤", "从模拟目录选商品，核对预算、库存和配送范围"], ["05", "比较取舍", "比较商品价与已知属性，明确未知信息"], ["06", "反馈收敛", "接受已有、不喜欢或太贵等反馈，保留条件再调整"]].map(([number, title, text], index, items) => (
               <div className="flow-step" key={title}><div className="flow-node" tabIndex={0}><span>{number}</span><b>{title}</b><p>{text}</p></div>{index < items.length - 1 && <div className="flow-connector"><i /></div>}</div>
             ))}
           </div></div>
-          <p className="orchestration-note">每次工具调用都可被观测、回放和扩展：库存、价格、物流与优惠券都可以成为可控的能力节点。</p>
+          <p className="orchestration-note">反馈可以让选择回到追问或检索环节。当前比较基于模拟商品目录，不提供全网实时比价，也不执行真实交易。</p>
         </section>
 
         <section className="demo-section" id="demo">
-          <div className="section-heading split-heading"><div><p className="eyebrow">INTERACTIVE DEMO</p><h2>试试这样问</h2></div><p>不确定买什么也没关系，先说说你的场景。</p></div>
+          <div className="section-heading split-heading"><div><p className="eyebrow">SCENARIO DEMO</p><h2>场景演示</h2></div><p>预设示例对话 · 商品与价格均为模拟数据</p></div>
           <div className="demo-grid">
             <aside className="prompt-list">
               <p>CHOOSE A SCENARIO</p>
@@ -216,18 +211,18 @@ export default function Landing() {
               <div className="demo-console-head"><div><span className="assistant-avatar">S</span><b>ShopMind Assistant</b></div><span className={thinking || typing ? "processing-state live" : "processing-state"}>{thinking || typing ? "Thinking" : "Ready"}</span></div>
               <div className="demo-stream">
                 <div className="message-wrap user-wrap"><span>YOU</span><div className="demo-message user">{query}</div></div>
-                <div className="tool-trace"><ToolPill active={thinking || typing}>parse_intent</ToolPill><ToolPill active={thinking || typing}>search_products</ToolPill><ToolPill active={typing}>rank_by_preferences</ToolPill></div>
+                <div className="message-wrap ai-wrap"><span>SHOPMIND</span><div className="demo-message ai">{scenario.question}</div></div>
+                <div className="message-wrap user-wrap"><span>YOU · 示例补充</span><div className="demo-message user">{scenario.answer}</div></div>
                 <div className="message-wrap ai-wrap"><span>SHOPMIND</span><div className="demo-message ai">{thinking ? <span className="loading-dots"><i /><i /><i /></span> : typedReply}{typing && <span className="typing-caret">|</span>}</div></div>
                 {!thinking && typedReply && <><div className="insight-chips">{scenario.chips.map((chip) => <span key={chip}>{chip}</span>)}</div><div className="recommendation-block"><div className="recommendation-title"><span>RECOMMENDATION DIRECTIONS</span><b>推荐方向</b></div><div className="direction-list">{scenario.directions.map((direction) => <span key={direction}>{direction}</span>)}</div></div><div className="demo-product-grid">{scenario.products.map((product) => <ProductCard key={product.name} product={product} compared={compared.includes(product.name)} onCompare={() => toggleCompare(product.name)} />)}</div></>}
               </div>
-              <form className="demo-composer" onSubmit={submit}><input value={input} onChange={(event) => setInput(event.target.value)} placeholder="说说你的购物场景、预算或顾虑..." /><button type="submit" disabled={!input.trim() || thinking || typing} aria-label="发送">↑</button></form>
+              <a className="secondary-btn" href="#live">用自己的需求开始真实对话 ↗</a>
             </div>
           </div>
         </section>
-        <LiveChat />
       </main>
 
-      <footer className="site-footer"><a className="brand" href="#overview"><span className="brand-symbol">S</span><span>ShopMind <b>AI</b></span></a><p>模拟商品目录；上方预设原型，下方真实模型对话。</p><div><a href="https://github.com/Pyper000/Pyper000.github.io">GitHub</a><a href="#overview">Portfolio</a></div></footer>
+      <footer className="site-footer"><a className="brand" href="#overview"><span className="brand-symbol">S</span><span>ShopMind <b>AI</b></span></a><p>模拟商品与模拟账户上下文；Product 为真实模型对话，Demo 为预设场景。</p><div><a href="https://github.com/Pyper000/Pyper000.github.io">GitHub</a><a href="#overview">Portfolio</a></div></footer>
     </div>
   );
 }

@@ -28,7 +28,7 @@ export default function LiveChat() {
     finally { setBusy(false); }
   }
   return <section className="live-section" id="live">
-    <div className="section-heading"><p className="eyebrow">LIVE CONVERSATION</p><h2>从你的生活目标开始</h2><p>真实模型对话 · 模拟商品目录 · 不涉及真实交易</p></div>
+    <div className="section-heading"><p className="eyebrow">PRODUCT / LIVE CONVERSATION</p><h2>和 ShopMind 一起选</h2><p>真实模型对话 · 模拟商品与模拟账户上下文 · 不涉及真实交易</p></div>
     <div className="live-actions"><button disabled={busy} onClick={() => { setMessages([]); setResult(undefined); setError(''); setSelected([]); }}>新对话</button>
       {['想给妈妈买礼物，但不知道买什么', '想让地铁通勤舒服一点', '想让出租屋温馨一点'].map(q => <button disabled={busy} key={q} onClick={() => void send(q)}>{q}</button>)}</div>
     <div className="live-messages" aria-live="polite">{messages.map((m, i) => <div key={i} className={`live-message ${m.role}`}><small>{m.role === 'user' ? '你' : 'ShopMind'}</small><p>{m.role === 'assistant' ? m.content.split('\n').filter(line => !/^.+: P\d/.test(line)).join('\n') : m.content}</p></div>)}
@@ -38,7 +38,7 @@ export default function LiveChat() {
     {result && <><div className="insight-chips"><span>目标：{result.plan.goal}</span><span>预算：{result.plan.budget ?? '待确认'} {result.plan.budget ? 'CNY（商品价）' : ''}</span><span>配送地：{result.plan.destination ?? '待确认'}</span>{result.plan.excludes.map(x => <span key={x}>排除：{x}</span>)}</div>
       {result.groups.map(g => <div key={g.name} className="live-group"><h3>{g.name}</h3><div className="live-products">{g.products.map(p => <article key={p.id} className="live-product"><h4>{p.title}</h4><strong>{p.price} {p.currency}</strong><p>{p.reason}</p><p className="live-tradeoff">取舍：{p.tradeoff}</p><label><input type="checkbox" checked={selected.includes(p.id)} disabled={busy || (!selected.includes(p.id) && selected.length >= 3)} onChange={() => setSelected(selected.includes(p.id) ? selected.filter(id => id !== p.id) : [...selected, p.id])} /> 加入比较</label></article>)}</div></div>)}
       {selected.length >= 2 && <button disabled={busy} onClick={() => void send(`比较这些商品 ${selected.join('、')}，结合我的目标给出首选和取舍`)}>比较已选商品</button>}</>}
-    <form className="demo-composer" onSubmit={e => { e.preventDefault(); void send(); }}><input maxLength={1500} value={input} onChange={e => setInput(e.target.value)} placeholder="说说你想改善什么，或继续补充条件…" aria-label="真实对话输入" /><button disabled={busy || !input.trim()} type="submit" aria-label="发送真实对话">↑</button></form>
+    <form className="demo-composer" onSubmit={e => { e.preventDefault(); void send(); }}><input maxLength={1500} value={input} onChange={e => setInput(e.target.value)} placeholder="想买什么，或者想改善生活里的哪件事？" aria-label="真实对话输入" /><button disabled={busy || !input.trim()} type="submit" aria-label="发送真实对话" title="发送">↑</button></form>
     <p className="live-note">价格为模拟商品价，未含运费；未说明配送地时不能确认可购买性。</p>
   </section>;
 }
