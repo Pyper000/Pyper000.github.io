@@ -82,7 +82,7 @@ section { scroll-margin-top: 90px; }
 .live-product-art.tone-1 { background: linear-gradient(130deg,#176d89,#173448); }
 .live-product-art.tone-2 { background: linear-gradient(130deg,#3982a3,#263b5d); }
 .live-product-art span, .live-product-art small { position: relative; z-index: 1; font-size: 10px; }
-.live-product-art small { color: rgba(242,245,255,.72); }
+.live-product-art small { padding: 3px 6px; border: 1px solid rgba(242,245,255,.2); border-radius: 4px; background: rgba(10,14,24,.2); color: rgba(242,245,255,.82); }
 .live-product-copy { padding: 12px 14px 14px; }
 .live-product-meta { display: flex; justify-content: space-between; gap: 8px; color: #8c99b3; font-size: 10px; }
 .live-product-meta strong { color: #dce4f7; font-family: "DM Mono",monospace; font-weight: 500; }

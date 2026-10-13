@@ -1,7 +1,11 @@
-import catalog from './catalog.json' with { type: 'json' };
+import catalogData from './catalog.json' with { type: 'json' };
+import taxonomy from './category-taxonomy.json' with { type: 'json' };
 
 const active = new Set();
 const traffic = new Map();
+const subcategories = new Map(Object.entries(taxonomy).flatMap(([category, groups]) =>
+  Object.entries(groups).flatMap(([subcategory, ids]) => ids.map(id => [id, { category, subcategory }]))));
+const catalog = catalogData.map(product => ({ ...product, ...subcategories.get(product.id) }));
 const destinations = new Set(catalog.flatMap(p => p.ships_to));
 
 export function filterCatalog(plan) {
@@ -71,7 +75,7 @@ JSON格式：{goal,stage,warmth,question,budget:null或人民币单件价格上�
 text最多180字：一句温度回应、简短首选建议、一个下一步问题。不要长开场、总结重复、寒暄或emoji。
 每个商品reason/tradeoff各最多45字。JSON：{text,groups:[{name,products:[{id,reason,tradeoff}]}]}。
 计划：${JSON.stringify(plan)}
-商品：${JSON.stringify(eligible.map(({id,title,brand,category,description,price,currency,highlights}) => ({id,title,brand,category,description,price,currency,highlights})))}` }, ...history]);
+商品：${JSON.stringify(eligible.map(({id,title,brand,category,subcategory,description,price,currency,highlights}) => ({id,title,brand,category,subcategory,description,price,currency,highlights})))}` }, ...history]);
   const byId = new Map(eligible.map(p => [p.id, p]));
   const seen = new Set();
   const groups = (Array.isArray(result.groups) ? result.groups : []).slice(0, 3).map(group => ({

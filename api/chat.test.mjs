@@ -2,16 +2,30 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decide, filterCatalog } from './chat.mjs';
 import catalog from './catalog.json' with { type: 'json' };
+import taxonomy from './category-taxonomy.json' with { type: 'json' };
 
-test('simulated catalog covers core shopping categories with valid products', () => {
-  const required = ['旅行装备', '数码配件', '家居生活', '户外运动', '服饰鞋包', '礼赠食品', '厨房与小家电', '美妆个护', '办公学习'];
+test('simulated catalog covers core categories and every mapped subcategory', () => {
+  const required = ['旅行装备', '数码配件', '家居生活', '户外运动', '服饰鞋包', '食品饮料', '厨房与小家电', '美妆个护', '办公学习', '母婴用品', '宠物用品', '汽车用品', '家用电器', '玩具乐器', '珠宝配饰', '鲜花园艺'];
   const ids = new Set(catalog.map(product => product.id));
   assert.equal(ids.size, catalog.length);
   for (const category of required) {
     const products = catalog.filter(product => product.category === category);
-    assert(products.length >= 2, `${category} should have at least two products`);
+    assert(products.length >= 3, `${category} should have at least three products`);
     assert(products.every(product => product.title && product.brand && product.price > 0 && product.currency && product.ships_to.length));
   }
+  const assigned = new Set();
+  for (const [category, subcategories] of Object.entries(taxonomy)) {
+    for (const [subcategory, productIds] of Object.entries(subcategories)) {
+      assert(productIds.length >= 1 && productIds.length <= 2, `${category}/${subcategory} should have one or two products`);
+      for (const id of productIds) {
+        assert(ids.has(id), `${id} must exist in catalog`);
+        assert(!assigned.has(id), `${id} must belong to only one subcategory`);
+        assert.equal(catalog.find(product => product.id === id).category, category, `${id} category mismatch`);
+        assigned.add(id);
+      }
+    }
+  }
+  assert.equal(assigned.size, catalog.length, 'every product must have a secondary category');
 });
 
 test('budget, destination and rejection are enforced before model selection', async () => {
