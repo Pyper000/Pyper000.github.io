@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 type Message = { role: 'user' | 'assistant'; content: string };
-type Product = { id: string; title: string; price: number; currency: string; highlights: string[]; reason: string; tradeoff: string };
+type Product = { id: string; title: string; brand: string; category: string; price: number; currency: string; highlights: string[]; reason: string; tradeoff: string };
 type Result = { text: string; plan: { goal: string; stage: string; budget: number | null; destination: string | null; excludes: string[] }; groups: { name: string; products: Product[] }[] };
 type TestRun = {
   test_id: string; tester_id: string; scenario_id: string; version: string; device_type: string;
@@ -127,10 +127,10 @@ export default function LiveChat() {
       {error && <div role="alert">{error} {messages[messages.length - 1]?.role === 'user' && <button onClick={() => void send(messages[messages.length - 1].content, true)}>重试</button>}</div>}
     </div>
     {result && <><div className="insight-chips"><span>目标：{result.plan.goal}</span><span>预算：{result.plan.budget ?? '待确认'} {result.plan.budget ? 'CNY（商品价）' : ''}</span><span>配送地：{result.plan.destination ?? '待确认'}</span>{result.plan.excludes.map(x => <span key={x}>排除：{x}</span>)}</div>
-      {result.groups.map(g => <div key={g.name} className="live-group"><h3>{g.name}</h3><div className="live-products">{g.products.map(p => <article key={p.id} className="live-product"><h4>{p.title}</h4><strong>{p.price} {p.currency}</strong><p>{p.reason}</p><p className="live-tradeoff">取舍：{p.tradeoff}</p><label><input type="checkbox" checked={selected.includes(p.id)} disabled={busy || (!selected.includes(p.id) && selected.length >= 3)} onChange={() => { setSelected(selected.includes(p.id) ? selected.filter(id => id !== p.id) : [...selected, p.id]); if (activeRun) patchRun(run => ({ ...run, compare_actions: run.compare_actions + 1 })); }} /> 加入比较</label></article>)}</div></div>)}
+      {result.groups.map(g => <div key={g.name} className="live-group"><h3>{g.name}</h3><div className="live-products">{g.products.map((p, index) => <article key={p.id} className="live-product"><div className={`live-product-art tone-${index % 3}`}><span>{p.category}</span><small>模拟商品</small></div><div className="live-product-copy"><div className="live-product-meta"><span>{p.brand}</span><strong>{p.price} {p.currency}</strong></div><h4>{p.title}</h4><p>{p.reason}</p><p className="live-tradeoff"><b>取舍</b>{p.tradeoff}</p><label><input type="checkbox" checked={selected.includes(p.id)} disabled={busy || (!selected.includes(p.id) && selected.length >= 3)} onChange={() => { setSelected(selected.includes(p.id) ? selected.filter(id => id !== p.id) : [...selected, p.id]); if (activeRun) patchRun(run => ({ ...run, compare_actions: run.compare_actions + 1 })); }} /> 加入比较</label></div></article>)}</div></div>)}
       {selected.length >= 2 && <button disabled={busy} onClick={() => { if (activeRun) patchRun(run => ({ ...run, compare_actions: run.compare_actions + 1 })); void send(`比较这些商品 ${selected.join('、')}，结合我的目标给出首选和取舍`); }}>比较已选商品</button>}</>}
     <form className="demo-composer" onSubmit={e => { e.preventDefault(); void send(); }}><input maxLength={1500} value={input} onChange={e => setInput(e.target.value)} placeholder="想买什么，或者想改善生活里的哪件事？" aria-label="真实对话输入" /><button disabled={busy || !input.trim()} type="submit" aria-label="发送真实对话" title="发送">↑</button></form>
     </div>
-    <p className="live-note">价格为模拟商品价，未含运费；未说明配送地时不能确认可购买性。</p>
+    <p className="live-note">商品、品牌、价格、库存与配送范围均为虚拟演示数据；价格未含运费，未确认配送地时不能判断可购买性。</p>
   </section>;
 }

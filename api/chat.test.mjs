@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { decide, filterCatalog } from './chat.mjs';
+import catalog from './catalog.json' with { type: 'json' };
+
+test('simulated catalog covers core shopping categories with valid products', () => {
+  const required = ['旅行装备', '数码配件', '家居生活', '户外运动', '服饰鞋包', '礼赠食品', '厨房与小家电', '美妆个护', '办公学习'];
+  const ids = new Set(catalog.map(product => product.id));
+  assert.equal(ids.size, catalog.length);
+  for (const category of required) {
+    const products = catalog.filter(product => product.category === category);
+    assert(products.length >= 2, `${category} should have at least two products`);
+    assert(products.every(product => product.title && product.brand && product.price > 0 && product.currency && product.ships_to.length));
+  }
+});
 
 test('budget, destination and rejection are enforced before model selection', async () => {
   const plan = { goal: 'gift', stage: 'search', budget: 100, destination: 'CN', excludes: ['茶具'], directions: [] };

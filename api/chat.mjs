@@ -71,7 +71,7 @@ JSON格式：{goal,stage,warmth,question,budget:null或人民币单件价格上�
 text最多180字：一句温度回应、简短首选建议、一个下一步问题。不要长开场、总结重复、寒暄或emoji。
 每个商品reason/tradeoff各最多45字。JSON：{text,groups:[{name,products:[{id,reason,tradeoff}]}]}。
 计划：${JSON.stringify(plan)}
-商品：${JSON.stringify(eligible.map(({id,title,price,currency,highlights}) => ({id,title,price,currency,highlights})))}` }, ...history]);
+商品：${JSON.stringify(eligible.map(({id,title,brand,category,description,price,currency,highlights}) => ({id,title,brand,category,description,price,currency,highlights})))}` }, ...history]);
   const byId = new Map(eligible.map(p => [p.id, p]));
   const seen = new Set();
   const groups = (Array.isArray(result.groups) ? result.groups : []).slice(0, 3).map(group => ({
