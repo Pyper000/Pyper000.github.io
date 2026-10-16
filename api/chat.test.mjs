@@ -40,6 +40,11 @@ test('budget, destination and rejection are enforced before model selection', as
   assert.equal(result.groups[0].products[0].price, eligible[0].price);
 });
 
+test('explicitly reusable items are not offered as products to buy again', () => {
+  const eligible = filterCatalog({ budget: null, destination: null, excludes: [], reusable: ['双肩包'], not_buy: [] });
+  assert(eligible.every(product => !`${product.title} ${product.description}`.includes('双肩包')));
+});
+
 test('clarification does not invent product cards or require a second model call', async () => {
   let calls = 0;
   const result = await decide([{ role: 'user', content: '改善通勤' }], async () => {
@@ -48,4 +53,76 @@ test('clarification does not invent product cards or require a second model call
   assert.equal(calls, 1);
   assert.equal(result.groups.length, 0);
   assert(result.text.length < 80);
+});
+
+test('scene planning returns a category checklist before matching any products', async () => {
+  let calls = 0;
+  const result = await decide([{ role: 'user', content: '周末去海边两天，不知道要准备什么' }], async () => {
+    calls++;
+    return { goal: '海边两天出行', stage: 'plan', warmth: '先把出行清单列清楚。', text: '必备：换洗衣物、洗漱用品。建议补充：防晒用品。按需或条件项：泳衣或速干衣物、手机防水袋、沙滩拖鞋、衣物收纳袋。你更想优先轻装，还是把下水用品准备齐？', tasks: ['换洗衣物', '洗漱用品'], optional: ['防晒用品', '泳衣或速干衣物', '手机防水袋', '沙滩拖鞋', '衣物收纳袋'], reusable: [], must_buy: [], unknowns: ['是否下水'] };
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.plan.stage, 'plan');
+  assert.deepEqual(result.groups, []);
+  assert.match(result.text, /建议补充/);
+  assert.match(result.text, /轻装/);
+  assert.deepEqual(result.plan.reusable, []);
+});
+
+test('preference feedback after checklist proceeds to product matching without re-asking', async () => {
+  const responses = [
+    { goal: '海边两天出行', stage: 'search', warmth: '按轻装来整理。', text: '按轻装优先，给你看一件衣物收纳候选。', preferences: ['轻装少带'], tasks: ['衣物收纳'], must_buy: [], optional: [], reusable: [], unknowns: ['是否已有收纳用品'], directions: [] },
+    { text: '這款收纳袋方便分装换洗衣物。', groups: [{ name: '衣物收纳', priority: 'candidate', products: [{ id: 'P1014', reason: '六件套可分装衣物', tradeoff: '已有袋子时可以不用买' }] }] },
+  ];
+  const result = await decide([
+    { role: 'user', content: '周末去海边两天，主要拍照可能下水' },
+    { role: 'assistant', content: '必备清单：换洗衣物、防晒用品。建议补充：泳衣、手机防水袋。按需准备：沙滩拖鞋。你优先轻装还是下水准备齐？' },
+    { role: 'user', content: '优先轻装，可能不下水' },
+  ], async () => responses.shift());
+  assert.equal(result.plan.stage, 'search');
+  assert.equal(result.groups[0].priority, 'candidate');
+  assert.deepEqual(result.plan.must_buy, []);
+  assert.deepEqual(result.plan.reusable, []);
+});
+
+test('shopping plan exposes task slots, reusable items and unknowns', async () => {
+  const responses = [
+    { goal: '周末海边出行', stage: 'search', warmth: '先把行李控制住。', question: '需要带电脑吗？', budget: 500, tasks: ['轻量防晒', '随身收纳'], reusable: ['双肩包'], unknowns: ['是否带电脑'], directions: [] },
+    { text: '先补齐防晒和收纳，已有双肩包不用重复买。', groups: [{ name: '轻量防晒', priority: 'must_buy', products: [{ id: 'P1006', reason: '适合场景', tradeoff: '收纳体积未提供' }] }] },
+  ];
+  const result = await decide([{ role: 'user', content: '周末去海边两天，家里有双肩包，预算500' }], async () => responses.shift());
+  assert.deepEqual(result.plan.tasks, ['轻量防晒', '随身收纳']);
+  assert.deepEqual(result.plan.reusable, ['双肩包']);
+  assert.deepEqual(result.plan.unknowns, ['是否带电脑']);
+  assert.equal(result.groups[0].products[0].id, 'P1006');
+});
+
+test('drops optional purchase tasks first to keep the plan within the total budget', async () => {
+  const responses = [
+    { goal: '短途出行', stage: 'search', warmth: '先把任务列清楚。', question: '需要带电脑吗？', budget: 200, tasks: ['收纳', '轻便出行'], must_buy: ['收纳'], optional: ['轻便出行'], reusable: [], not_buy: ['新背包，已有双肩包'], unknowns: [], directions: [] },
+    { text: '推荐两项', groups: [
+      { name: '收纳', priority: 'must_buy', products: [{ id: 'P1001', reason: '可用', tradeoff: '容量有限' }] },
+      { name: '轻便出行', priority: 'optional', products: [{ id: 'P1003', reason: '可用', tradeoff: '容量有限' }] },
+    ] },
+  ];
+  const result = await decide([{ role: 'user', content: '短途出行预算200' }], async () => responses.shift());
+  assert.deepEqual(result.groups.map(group => group.name), ['收纳']);
+  assert.deepEqual(result.plan.must_buy, ['收纳']);
+  assert.deepEqual(result.plan.not_buy, ['新背包，已有双肩包']);
+  assert.equal(result.budget.status, 'within_budget');
+  assert.equal(result.budget.minimum_total, 189);
+  assert.equal(result.budget.optional_total, 0);
+});
+
+test('reports optional spend separately from the required plan total', async () => {
+  const responses = [
+    { goal: '露营', stage: 'search', warmth: '先满足基础照明。', budget: 300, tasks: ['主灯', '备用灯'], must_buy: ['主灯'], optional: ['备用灯'], reusable: [], not_buy: [], unknowns: [], directions: [] },
+    { text: '主灯优先，备用灯按需。', groups: [
+      { name: '主灯', priority: 'must_buy', products: [{ id: 'P1008', reason: '基础照明候选', tradeoff: '续航未核实' }] },
+      { name: '备用灯', priority: 'optional', products: [{ id: 'P1038', reason: '夜间活动较多时备用', tradeoff: '不影响基础照明任务' }] },
+    ] },
+  ];
+  const result = await decide([{ role: 'user', content: '露营灯预算300' }], async () => responses.shift());
+  assert.equal(result.budget.minimum_total, 89);
+  assert.equal(result.budget.optional_total, 45);
 });

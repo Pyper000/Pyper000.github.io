@@ -9,10 +9,11 @@ const catalog = catalogData.map(product => ({ ...product, ...subcategories.get(p
 const destinations = new Set(catalog.flatMap(p => p.ships_to));
 
 export function filterCatalog(plan) {
+  const excluded = [...(plan.excludes || []), ...(plan.reusable || []), ...(plan.not_buy || [])].filter(Boolean);
   return catalog.filter(p => p.stock > 0 &&
     (!plan.destination || p.ships_to.includes(plan.destination)) &&
     (plan.budget == null || (p.currency === 'CNY' && p.price <= plan.budget)) &&
-    !plan.excludes.some(term => `${p.title} ${p.description}`.includes(term)));
+    !excluded.some(term => `${p.title} ${p.description}`.includes(term)));
 }
 
 function parseJson(text) {
@@ -40,46 +41,63 @@ export async function decide(history, callModel = model) {
     `你是购物需求规划器。只输出JSON。根据对话理解生活目标，不限送礼，也包括通勤、出租屋、旅行。
 区分用户事实与假设；不推断年龄、健康、收入，不把收礼人偏好当买家偏好。
 同一目标保留已确认预算和目的地，明确改条件则更新，换目标不继承临时条件。
-excludes记录用户不要/已拥有的商品词，例如茶具、头戴式；只记录明确排除，不扩大到整个品类。
-这是购物决策，不是闲聊。目标是在首次表达加1-2次有效补充内给出场景+商品方案，不承诺固定轮次一定解决。
-仅当没有足够线索形成任何合理方向时stage=clarify，一次问最能区分方向的问题，可给2-3个简短选项。
-用户已经给出爱好、使用困扰或明确品类时，优先stage=search，先给可调整的方案，再问一个收敛问题；不必把预算、目的地、兴趣逐项问齐才推荐。
+excludes记录用户明确拒绝的商品词；已拥有物品放入reusable和not_buy，不作为用户长期偏好。
+这是购物决策，不是闲聊。模糊生活任务按“边界澄清→品类清单→用户取舍→商品方案”推进；不要把生活任务直接跳成商品推荐。
+stage=clarify：尚不知道会改变清单品类或数量的场景条件时，最多问2个关键问题。根据场景选择问题，例如海边出行问同行人数及是否下水、玩沙或主要拍照；出租屋改造问范围及能否复原。不要先问抽象偏好，也不要固定套用人数/预算问题。
+stage=plan：场景边界足够后、但尚未向用户展示清单时，直接输出采购任务框架，不要继续追问“你需要买什么”。tasks列完成目标所需的必备品类，例如短途出行的防晒、换洗、洗漱；这些是任务槽位，不代表用户一定需要新买。optional列建议补充、体验提升和条件项，并在text中区分“建议补充”与“满足某条件才需要”。已有物品只按用户明确表达记录；没有提及则说“尚未确认”，不得当成无库存。用短标题“必备 / 建议补充 / 按需或条件项”组织text，并在用户未表达偏好时只问一个最关键的取舍问题。可顺带邀请用户补充已有物品，但不能要求先盘点才给框架。用户已说过轻装、预算等偏好时，跳过重复问题。
+stage=search：仅在清单框架已展示且用户已反馈偏好/调整，或用户明确要买某个具体品类时生成商品方案。若用户未提已有物品，不得假定没有；将相关商品标记为待核对候选，并在text中简洁说明已有物品尚未确认。不得把候选商品都称为必买。用户偏好已在前文说明时不可重复追问。
+已展示清单后，用户可能只回答取舍偏好，也可能同时补充已有物品或改变活动；按反馈更新清单，不重复问已知信息。若用户改变活动（如从可能下水改为不下水），移除因此不再需要的品类。简单明确的单品需求可跳过生活任务清单。
+用户已经给出爱好、使用困扰或明确品类时，可先形成可调整方案；不必把预算、目的地逐项问齐才推荐。库存无对应品类时诚实说明。
 例如爸爸喜欢养蜂和钓鱼：可先形成户外便携、钓鱼照明等候选方向，不再只问“选哪个爱好”；库存无对应品类时诚实说明。
 避免重复追问、泛泛问“还有什么兴趣”，不把尚未确认的生活习惯当事实。预算和配送地未知时可展示候选，但明确未核实，不声称可购买。
 warmth一句自然回应，最多25字，不复述整段需求，不说“为了给你更有针对性的建议”等套话。
-澄清回复由warmth加一个question构成，总计80字内，不额外问预算或列长清单。
-JSON格式：{goal,stage,warmth,question,budget:null或人民币单件价格上限,destination:null或国家码,excludes:[],preferences:[],directions:[{name,query}]}。
-预算口径为模拟商品价，不含运费，不能称为到手价。有总预算但多件组合时不擅自精确分摊。
+澄清回复由warmth加一个question构成，总计80字内；清单阶段text简洁列品类并问一个偏好，不写长开场。
+JSON格式：{goal,stage,warmth,question,text,budget:null或人民币总预算上限,destination:null或国家码,excludes:[],preferences:[],tasks:[],must_buy:[],optional:[],reusable:[],not_buy:[],unknowns:[],directions:[{name,query}]}。
+预算口径为整个采购方案的模拟商品总价上限，不含运费，不能称为到手价。tasks是完成生活任务需要准备的品类，不代表都要购买；must_buy只记录用户明确确认缺少且完成任务需要购买的项；optional是提升体验但可暂缓的项；reusable只记录用户明确已有的物品，未提及的物品视为未知而非没有；not_buy是明确不建议重复购买的项；unknowns记录尚未确认且影响是否购买的内容。不要为了证明“少买”而省略真实必要品类。
 目的地码可用：${[...destinations].join(',')}；未知目的地保持null并说明待核实，不能假设能配送。
 方向最多3个，搜索词具体，不生成订单，不给医疗建议。` }, ...history]);
   const plan = {
     goal: String(planRaw.goal || '').slice(0, 120),
-    stage: ['clarify', 'search', 'compare'].includes(planRaw.stage) ? planRaw.stage : 'clarify',
+    stage: ['clarify', 'plan', 'search', 'compare'].includes(planRaw.stage) ? planRaw.stage : 'clarify',
     warmth: String(planRaw.warmth || '').slice(0, 40),
     question: String(planRaw.question || '').slice(0, 100),
     budget: Number.isFinite(planRaw.budget) && planRaw.budget > 0 ? planRaw.budget : null,
     destination: destinations.has(planRaw.destination) ? planRaw.destination : null,
     excludes: Array.isArray(planRaw.excludes) ? planRaw.excludes.filter(x => typeof x === 'string' && x.trim()).slice(0, 10) : [],
     preferences: Array.isArray(planRaw.preferences) ? planRaw.preferences.slice(0, 6).map(String) : [],
+    tasks: Array.isArray(planRaw.tasks) ? planRaw.tasks.slice(0, 5).map(String) : [],
+    must_buy: Array.isArray(planRaw.must_buy) ? planRaw.must_buy.slice(0, 5).map(String) : [],
+    optional: Array.isArray(planRaw.optional) ? planRaw.optional.slice(0, 5).map(String) : [],
+    reusable: Array.isArray(planRaw.reusable) ? planRaw.reusable.slice(0, 8).map(String) : [],
+    not_buy: Array.isArray(planRaw.not_buy) ? planRaw.not_buy.slice(0, 8).map(String) : [],
+    unknowns: Array.isArray(planRaw.unknowns) ? planRaw.unknowns.slice(0, 4).map(String) : [],
     directions: Array.isArray(planRaw.directions) ? planRaw.directions.slice(0, 3) : [],
   };
+  if (plan.stage === 'search' && history.length > 1) {
+    const hasPlanTurn = history.slice(0, -1).some(message => message.role === 'assistant' && /基础准备|必备(?:清单|品类)?|建议补充|按需(?:准备|项)|清单框架|准备清单/.test(message.content));
+    const hasPreference = plan.preferences.length > 0;
+    if (!hasPlanTurn && !hasPreference && !['clarify', 'plan'].includes(planRaw.stage)) plan.stage = 'plan';
+  }
   if (plan.stage === 'clarify') return { plan, text: `${plan.warmth}\n${plan.question || '你最想改善哪个方面？'}`, groups: [], mode: 'live' };
+  if (plan.stage === 'plan') return { plan, text: String(planRaw.text || `${plan.warmth}\n先按当前场景整理准备清单：${plan.tasks.join('、')}。告诉我你更看重哪方面；已有的物品也可以顺便说，我会从采购项里扣除。`).slice(0, 600), groups: [], mode: 'live' };
   const eligible = filterCatalog(plan);
   if (!eligible.length) return { plan, text: `${plan.warmth}\n模拟目录中没有同时满足预算、配送地及排除条件的商品。你愿意调整哪个条件？`, groups: [], mode: 'live' };
   const result = await callModel([{ role: 'system', content:
     `你是购物方案助手，只输出JSON。以下是规则层已过滤的模拟商品目录。
-围绕目标给2-3个不同的生活场景方案，每方向最多2件。方向名称体现用途，例如“地铁降噪”“轻量收纳”，不是只有品类名。
-只能选择目录内id；明确品类或比较任务可只给一个方向。先提供方案再问一个影响首选的问题，不以泛泛追问代替方案。
+请把结果组织成“最小够用的采购方案”，不是一批互斥的商品推荐。每个group代表一个采购任务槽位，例如“主照明”“证件收纳”“替换衣物”，products是该槽位的1-2个可替代商品。priority只能是must_buy、optional或candidate。
+优先完成用户任务，不以少买为目的删掉必要准备项；明确已有物品不再推荐，并在方案里说明复用。仅当用户明确说缺少某必需品类时才标must_buy；已有物品未确认时标candidate，体验提升项标optional。方案最多3个任务槽位，每个槽位最多2件替代商品。
+只能选择目录内id；明确品类或比较任务可只给一个槽位。已确认偏好时直接筛选，不再追加宽泛问题。
 不相关时不要硬凑，groups可以为空。不能声称看过浏览记录、买家评价、真实销量或真实物流。
 理由和不足必须依据目录，未知属性说未提供；不是医疗功效建议。不能虚构价格、配送和材质。
-text最多180字：一句温度回应、简短首选建议、一个下一步问题。不要长开场、总结重复、寒暄或emoji。
-每个商品reason/tradeoff各最多45字。JSON：{text,groups:[{name,products:[{id,reason,tradeoff}]}]}。
+text最多180字：一句温度回应、当前方案一句总结、一个下一步问题。不要长开场、总结重复、寒暄或emoji。
+每个商品reason/tradeoff各最多45字。JSON：{text,groups:[{name,priority,products:[{id,reason,tradeoff}]}]}。
 计划：${JSON.stringify(plan)}
 商品：${JSON.stringify(eligible.map(({id,title,brand,category,subcategory,description,price,currency,highlights}) => ({id,title,brand,category,subcategory,description,price,currency,highlights})))}` }, ...history]);
   const byId = new Map(eligible.map(p => [p.id, p]));
   const seen = new Set();
-  const groups = (Array.isArray(result.groups) ? result.groups : []).slice(0, 3).map(group => ({
+  let groups = (Array.isArray(result.groups) ? result.groups : []).slice(0, 3).map(group => ({
     name: String(group.name || '推荐方向').slice(0, 50),
+    priority: ['optional', 'candidate'].includes(group.priority) ? group.priority : 'must_buy',
     products: (Array.isArray(group.products) ? group.products : []).slice(0, 2).flatMap(item => {
       const p = byId.get(item.id);
       if (!p || seen.has(p.id)) return [];
@@ -87,9 +105,18 @@ text最多180字：一句温度回应、简短首选建议、一个下一步问�
       return [{ ...p, reason: String(item.reason || '').slice(0, 80), tradeoff: String(item.tradeoff || '').slice(0, 80) }];
     }),
   })).filter(group => group.products.length);
-  return { plan, text: groups.length ? String(result.text || plan.warmth).slice(0, 450) :
-    '当前模拟目录里没有足够相关的选择，我不想给你凑一份清单。你愿意尝试哪个其他方向？',
-    groups, mode: 'live', trace: { catalogSize: catalog.length, eligible: eligible.length, selected: seen.size,
+  const sumMinimum = selectedGroups => selectedGroups.reduce((total, group) => total + Math.min(...group.products.map(product => product.price)), 0);
+  if (plan.budget != null && sumMinimum(groups.filter(group => group.priority !== 'candidate')) > plan.budget) {
+    groups = groups.filter(group => group.priority !== 'optional');
+  }
+  const requiredTotal = sumMinimum(groups.filter(group => group.priority === 'must_buy'));
+  const optionalTotal = sumMinimum(groups.filter(group => group.priority === 'optional'));
+  const overBudget = plan.budget != null && requiredTotal > plan.budget;
+  const fallbackText = groups.length ? String(result.text || plan.warmth).slice(0, 450) :
+    '当前模拟目录里没有足够相关的选择，我不想给你凑一份清单。你愿意尝试哪个其他方向？';
+  return { plan, groups, mode: 'live', budget: { limit: plan.budget, minimum_total: requiredTotal, optional_total: optionalTotal, status: overBudget ? 'required_items_over_budget' : 'within_budget' },
+    text: overBudget ? `${fallbackText.slice(0, 300)} 必需项按当前目录最低约 ${requiredTotal} CNY，超过预算 ${plan.budget} CNY；可以调整预算或告诉我哪项能替代。` : fallbackText,
+    trace: { catalogSize: catalog.length, eligible: eligible.length, selected: seen.size, minimumTotal: requiredTotal,
       retrieval: 'LLM catalog selection with rule constraints; no vector retrieval in this serverless endpoint' } };
 }
 
