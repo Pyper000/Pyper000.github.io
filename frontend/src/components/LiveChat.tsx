@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 type Message = { role: 'user' | 'assistant'; content: string };
 type Product = { id: string; title: string; brand: string; category: string; subcategory: string; price: number; currency: string; highlights: string[]; reason: string; tradeoff: string };
-type Result = { text: string; plan: { goal: string; stage: string; budget: number | null; destination: string | null; excludes: string[]; tasks?: string[]; must_buy?: string[]; optional?: string[]; reusable?: string[]; not_buy?: string[]; unknowns?: string[]; preferences?: string[] }; groups: { name: string; priority: 'must_buy' | 'optional' | 'candidate'; products: Product[] }[]; budget?: { limit: number | null; minimum_total: number; optional_total: number; status: string } };
+type Result = { text: string; plan: { goal: string; stage: string; budget: number | null; destination: string | null; excludes: string[]; tasks?: string[]; must_buy?: string[]; optional?: string[]; prep?: string[]; reusable?: string[]; not_buy?: string[]; unknowns?: string[]; preferences?: string[] }; groups: { name: string; priority: 'must_buy' | 'optional' | 'candidate'; products: Product[] }[]; budget?: { limit: number | null; minimum_total: number; optional_total: number; status: string } };
 type SlotStatus = 'have' | 'buy' | 'unknown' | 'skip';
 type TestRun = {
   test_id: string; tester_id: string; scenario_id: string; version: string; device_type: string;
@@ -19,7 +19,7 @@ type TestRun = {
 };
 
 const STORAGE_KEY = 'shopmind-usability-tests-v1';
-const VERSION = 'live-chat-v3-checklist';
+const VERSION = 'live-chat-v4-itemized-checklist';
 const columns: (keyof TestRun)[] = ['test_id', 'tester_id', 'scenario_id', 'version', 'device_type', 'start_time', 'end_time', 'duration_sec', 'user_turns', 'assistant_turns', 'clarify_turns', 'plan_updates', 'plan_task_slots', 'plan_must_buy_slots', 'plan_optional_slots', 'plan_reusable_items', 'plan_not_buy_items', 'plan_unknown_items', 'budget_limit_cny', 'minimum_required_total_cny', 'optional_total_cny', 'budget_status', 'compare_selection_actions', 'model_compare_requests', 'product_candidates_returned', 'task_completed', 'completion_step', 'abandon_reason', 'satisfaction_1to5', 'ease_1to5', 'trust_1to5', 'plan_completeness_1to5', 'omission_confidence_1to5', 'budget_understanding_1to5', 'tradeoff_understanding_1to5', 'decision_confidence_1to5', 'stuck_step', 'error_count'];
 
 function readRuns(): TestRun[] {
@@ -107,7 +107,7 @@ export default function LiveChat() {
         setPlanPriority(/轻装|轻便|少占空间/.test(preferences) ? 'lightweight' : /省钱|实惠|性价比|预算/.test(preferences) ? 'value' : /品质|耐用/.test(preferences) ? 'quality' : /周全|齐全/.test(preferences) ? 'complete' : /美观|颜值/.test(preferences) ? 'appearance' : '');
       }
       if (activeRun) patchRun(run => {
-        const state = JSON.stringify([data.plan.budget, data.plan.destination, data.plan.excludes, data.plan.tasks, data.plan.must_buy, data.plan.optional, data.plan.reusable, data.plan.not_buy, data.plan.unknowns, data.groups.map(group => [group.name, group.priority, group.products.map(product => product.id)])]);
+        const state = JSON.stringify([data.plan.budget, data.plan.destination, data.plan.excludes, data.plan.tasks, data.plan.must_buy, data.plan.optional, data.plan.prep, data.plan.reusable, data.plan.not_buy, data.plan.unknowns, data.groups.map(group => [group.name, group.priority, group.products.map(product => product.id)])]);
         const changed = run.last_conditions !== '' && run.last_conditions !== state;
         const cards = data.groups.reduce((count: number, group: Result['groups'][number]) => count + group.products.length, 0);
         return { ...run, assistant_turns: run.assistant_turns + 1, clarify_turns: run.clarify_turns + (data.plan.stage === 'clarify' ? 1 : 0),
@@ -130,7 +130,9 @@ export default function LiveChat() {
     if (!result || !checklistReady) return;
     const required = result.plan.tasks ?? [];
     const optional = result.plan.optional ?? [];
-    const labels = (items: string[], prefix: string, status: SlotStatus) => items.filter(item => slotStatus[`${prefix}:${item}`] === status);
+    const labels = (items: string[], prefix: string, status: SlotStatus) => items.filter(item => status === 'unknown'
+      ? !slotStatus[`${prefix}:${item}`] || slotStatus[`${prefix}:${item}`] === 'unknown'
+      : slotStatus[`${prefix}:${item}`] === status);
     const have = [...labels(required, 'required', 'have'), ...labels(optional, 'optional', 'have')];
     const missing = labels(required, 'required', 'buy');
     const addOptional = labels(optional, 'optional', 'buy');
@@ -179,28 +181,29 @@ export default function LiveChat() {
     <div className="live-console-head"><strong>ShopMind Assistant</strong><span>{busy ? '正在整理最小采购方案' : '准备好帮你规划'}</span></div>
     <div className="live-actions"><button disabled={busy} onClick={() => { setMessages([]); setResult(undefined); setError(''); setSelected([]); setSlotStatus({}); setPlanBudget(''); setPlanPriority(''); }}>新对话</button>
       {['周末去海边两天，帮我准备购物清单', '想给妈妈买礼物，不知道买什么', '第一次租房入住，不知道要准备什么'].map(q => <button disabled={busy} key={q} onClick={() => void send(q)}>{q}</button>)}</div>
-    <div className="live-messages" aria-live="polite">{messages.map((m, i) => <div key={i} className={`live-message ${m.role}`}><small>{m.role === 'user' ? '你' : 'ShopMind'}</small><p>{m.role === 'assistant' && result?.plan.stage === 'plan' && i === messages.length - 1 ? '清单框架已经整理好。请在下方逐项标记已有、缺少或待确认，再确认预算和优先级；我会据此只匹配待补项。' : m.role === 'assistant' ? m.content.split('\n').filter(line => !/^.+: P\d/.test(line)).join('\n').replace(/\*\*/g, '').replace(/^\s*[-*]\s+/gm, '• ') : m.content}</p></div>)}
+    <div className="live-messages" aria-live="polite">{messages.map((m, i) => <div key={i} className={`live-message ${m.role}`}><small>{m.role === 'user' ? '你' : 'ShopMind'}</small><p>{m.role === 'assistant' ? <>{m.content.split('\n').filter(line => !/^.+: P\d/.test(line)).join('\n').replace(/\*\*/g, '').replace(/^\s*[-*]\s+/gm, '• ')}{result?.plan.stage === 'plan' && i === messages.length - 1 ? '\n\n请在下方逐项确认已有、需要补或暂不需要，再确认预算和优先级。' : ''}</> : m.content}</p></div>)}
       {!messages.length && <div className="live-message assistant"><small>ShopMind</small><p>还没想好商品名也没关系。说说你要完成的生活任务，我会先问清会改变清单的场景条件，再列准备品类。</p></div>}
       {busy && <div className="live-status" role="status"><span className="live-spinner" />正在理解需求、检索并整理方案…</div>}
       {error && <div role="alert">{error} {messages[messages.length - 1]?.role === 'user' && <button onClick={() => void send(messages[messages.length - 1].content, true)}>重试</button>}</div>}
     </div>
     {result && <><div className="insight-chips"><span>目标：{result.plan.goal}</span><span>总预算：{result.plan.budget ?? '待确认'} {result.plan.budget ? 'CNY（商品价）' : ''}</span><span>配送地：{result.plan.destination ?? '待确认'}</span>{result.plan.excludes.map(x => <span key={x}>不买：{x}</span>)}</div>
       {result.plan.stage === 'plan' && !result.groups.length && <section className="checklist-step" aria-label="逐项核对采购清单">
-        <header><div><strong>逐项核对清单</strong><span>点选状态即可，不用把已有物品逐条打字</span></div><small>未标记的项目会保持待确认</small></header>
-        {!!result.plan.tasks?.length && <div className="checklist-group"><h3>必备品类</h3>{result.plan.tasks.map(item => {
+        <header><div><strong>逐项核对清单</strong><span>点选状态即可，不用把已有物品逐条打字</span></div><small>未标记的项目保持“还没确认”</small></header>
+        {!!result.plan.tasks?.length && <div className="checklist-group"><h3>必备物品（出行需要，不代表要购买）</h3>{result.plan.tasks.map(item => {
           const key = `required:${item}`;
           return <div className="checklist-item" key={key}><b>{item}</b><div role="group" aria-label={`${item}状态`}>
-            {([['have', '已有'], ['buy', '需要补'], ['unknown', '待确认']] as [SlotStatus, string][]).map(([status, label]) => <button type="button" key={status} className={slotStatus[key] === status ? 'selected' : ''} aria-pressed={slotStatus[key] === status} onClick={() => setSlotStatus(current => ({ ...current, [key]: current[key] === status ? 'unknown' : status }))}>{label}</button>)}
+            {([['have', '已有'], ['buy', '需要购买'], ['unknown', '还没确认']] as [SlotStatus, string][]).map(([status, label]) => <button type="button" key={status} className={slotStatus[key] === status ? 'selected' : ''} aria-pressed={slotStatus[key] === status} onClick={() => setSlotStatus(current => ({ ...current, [key]: current[key] === status ? 'unknown' : status }))}>{label}</button>)}
           </div></div>;
         })}</div>}
         {!!result.plan.optional?.length && <div className="checklist-group optional-slots"><h3>按需准备</h3>{result.plan.optional.map(item => {
           const key = `optional:${item}`;
           return <div className="checklist-item" key={key}><b>{item}</b><div role="group" aria-label={`${item}状态`}>
-            {([['have', '已有'], ['buy', '想准备'], ['skip', '暂不需要'], ['unknown', '待确认']] as [SlotStatus, string][]).map(([status, label]) => <button type="button" key={status} className={slotStatus[key] === status ? 'selected' : ''} aria-pressed={slotStatus[key] === status} onClick={() => setSlotStatus(current => ({ ...current, [key]: current[key] === status ? 'unknown' : status }))}>{label}</button>)}
+            {([['have', '已有'], ['buy', '想购买'], ['skip', '先不买'], ['unknown', '还没确认']] as [SlotStatus, string][]).map(([status, label]) => <button type="button" key={status} className={slotStatus[key] === status ? 'selected' : ''} aria-pressed={slotStatus[key] === status} onClick={() => setSlotStatus(current => ({ ...current, [key]: current[key] === status ? 'unknown' : status }))}>{label}</button>)}
           </div></div>;
         })}</div>}
+        {!!result.plan.prep?.length && <div className="checklist-reminders"><h3>出发前提醒（不需要购买）</h3><p>{result.plan.prep.join(' · ')}</p></div>}
         <div className="checklist-preferences"><label>预算上限（商品价）<span><input type="number" min="1" value={planBudget} onChange={event => setPlanBudget(event.target.value)} placeholder="可留空" /> 元</span></label><label>优先考虑<select value={planPriority} onChange={event => setPlanPriority(event.target.value)}><option value="">暂不选，让 ShopMind 根据清单追问</option><option value="lightweight">轻便少占空间</option><option value="value">实惠 / 性价比</option><option value="quality">品质耐用</option><option value="complete">准备周全</option><option value="appearance">美观协调</option></select></label></div>
-        <div className="checklist-next"><span>{checklistReady ? '确认后只为标记为“需要补”的品类匹配候选。' : '请先标记至少一项；其余项目可保持待确认。'}</span><button type="button" disabled={busy || !checklistReady} onClick={confirmChecklist}>确认清单，匹配待补商品 →</button></div>
+        <div className="checklist-next"><span>{checklistReady ? '只会为“需要购买 / 想购买”的项目找商品；已有、先不买和还没确认的项目不会推荐。' : '请先标记至少一项；其他项目可以保持还没确认。'}</span><button type="button" disabled={busy || !checklistReady} onClick={confirmChecklist}>确认清单，匹配商品 →</button></div>
       </section>}
       {result.plan.stage !== 'clarify' && result.plan.stage !== 'plan' && <div className="plan-readout">
         <div><b>必备任务槽位</b><span>{result.plan.tasks?.join(' · ') || '按当前场景整理'}</span></div>

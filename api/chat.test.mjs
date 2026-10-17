@@ -69,6 +69,16 @@ test('scene planning returns a category checklist before matching any products',
   assert.deepEqual(result.plan.reusable, []);
 });
 
+test('non-purchasable preparation reminders stay outside the product checklist', async () => {
+  const result = await decide([{ role: 'user', content: '去意大利出差一周，帮我整理行前准备' }], async () => ({
+    goal: '意大利出差', stage: 'plan', text: '必备：转换插头。行前提醒：确认护照有效期。',
+    tasks: ['欧标转换插头'], prep: ['确认护照有效期', '核对机票信息'], optional: [],
+  }));
+  assert.deepEqual(result.plan.tasks, ['欧标转换插头']);
+  assert.deepEqual(result.plan.prep, ['确认护照有效期', '核对机票信息']);
+  assert.deepEqual(result.groups, []);
+});
+
 test('preference feedback after checklist proceeds to product matching without re-asking', async () => {
   const responses = [
     { goal: '海边两天出行', stage: 'search', warmth: '按轻装来整理。', text: '按轻装优先，给你看一件衣物收纳候选。', preferences: ['轻装少带'], tasks: ['衣物收纳'], must_buy: [], optional: [], reusable: [], unknowns: ['是否已有收纳用品'], directions: [] },

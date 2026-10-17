@@ -53,6 +53,15 @@
 .live-section .demo-composer button { flex: 0 0 44px; width: 44px; height: 44px; padding: 0; background: #18795f; border: 0; font-size: 25px; }
 .live-note { margin-top: 12px; font-size: 12px; }
 .live-product { background: #182126; border-top: 3px solid #59cbb3; }
+.live-group { max-width: 900px; }
+.live-products { grid-template-columns: repeat(2,minmax(0,1fr)); align-items: stretch; }
+.live-product { min-height: 340px; display: flex; flex-direction: column; }
+.live-product-art { min-height: 86px; }
+.live-product-copy { display: flex; flex: 1; flex-direction: column; }
+.live-product .live-tradeoff { flex: 1; }
+.checklist-reminders { margin: 14px 0; padding: 10px 12px; border-left: 2px solid #8392ac; background: rgba(11,16,25,.24); }
+.checklist-reminders h3 { margin: 0 0 6px; color: #aebbd0; font-size: 11px; }
+.checklist-reminders p { margin: 0; color: #9ba8bc; font-size: 11px; line-height: 1.7; }
 .demo-console > .secondary-btn { margin: 16px 24px; }
 .site-nav { gap: 18px; }
 section { scroll-margin-top: 90px; }
@@ -110,7 +119,7 @@ section { scroll-margin-top: 90px; }
 .hero-console .mini-product b { font-size: 9px; }
 .hero-console .mini-product span { font-size: 8px; }
 .hero-console .mini-product em { display: none; }
-@media (max-width: 650px) { .live-console { padding: 16px; } .live-console-head { flex-wrap: wrap; } .hero-console .mini-products { grid-template-columns: minmax(0,1fr); } }
+  @media (max-width: 650px) { .live-console { padding: 16px; } .live-console-head { flex-wrap: wrap; } .hero-console .mini-products { grid-template-columns: minmax(0,1fr); } .live-group { max-width: none; } .live-products { grid-template-columns: minmax(0,1fr); } .live-product { min-height: 0; } }
 @media (max-width: 650px) { .test-start, .test-finish { align-items: stretch; flex-direction: column; } .test-start label, .test-finish label { width: 100%; } .test-start input, .test-finish input, .test-finish select { width: 100%; } }
 .prompt-option { grid-template-columns: 25px minmax(0,1fr) 14px; grid-template-rows: auto auto; gap: 4px 8px; }
 .prompt-option span { grid-column: 1; grid-row: 1 / 3; }
