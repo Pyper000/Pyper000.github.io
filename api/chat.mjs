@@ -20,6 +20,44 @@ function parseJson(text) {
   return JSON.parse(text.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/, ''));
 }
 
+function slotTokens(text) {
+  const tokens = new Set();
+  for (const part of String(text).toLowerCase().match(/[a-z0-9]+|[\u3400-\u9fff]+/g) || []) {
+    if (/^[\u3400-\u9fff]+$/.test(part)) {
+      for (let index = 0; index < part.length - 1; index += 1) tokens.add(part.slice(index, index + 2));
+      if (part.length === 1) tokens.add(part);
+    } else tokens.add(part);
+  }
+  return tokens;
+}
+
+function relevantProducts(products, plan, fallbackQuery) {
+  const slots = [...new Set([...(plan.must_buy || []), ...(plan.optional || []), ...(plan.tasks || [])])];
+  const aliases = {
+    '衣物收纳': ['旅行收纳袋', '压缩收纳', '衣物分装'],
+    '随身收纳': ['收纳袋', '收纳包', '证件收纳'],
+    '收纳': ['收纳袋', '收纳包', '衣物分装'],
+    '轻量防晒': ['防晒衣', '防晒霜', '遮阳帽'],
+    '主灯': ['露营灯', '便携灯'],
+    '备用灯': ['手电', '钥匙扣手电'],
+  };
+  const queries = slots.length ? slots.flatMap(slot => [slot, ...(aliases[slot] || [])]) : [fallbackQuery];
+  const picked = new Map();
+  for (const query of queries) {
+    const normalizedQuery = String(query).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+    const queryTokens = slotTokens(query);
+    const ranked = products.map(product => {
+      const text = `${product.title} ${product.brand} ${product.category} ${product.subcategory} ${product.description} ${(product.highlights || []).join(' ')}`;
+      const normalizedText = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+      const tokens = slotTokens(text);
+      const overlap = [...queryTokens].filter(token => tokens.has(token)).length;
+      return { product, score: overlap + (normalizedQuery && normalizedText.includes(normalizedQuery) ? 100 : 0) };
+    }).filter(item => item.score > 0).sort((left, right) => right.score - left.score || left.product.price - right.product.price);
+    for (const { product } of ranked.slice(0, 6)) picked.set(product.id, product);
+  }
+  return [...picked.values()].slice(0, 24);
+}
+
 async function model(messages) {
   const key = process.env.LLM_API_KEY;
   if (!key) throw new Error('MODEL_NOT_CONFIGURED');
@@ -44,7 +82,7 @@ export async function decide(history, callModel = model) {
 excludes记录用户明确拒绝的商品词；已拥有物品放入reusable和not_buy，不作为用户长期偏好。
 这是购物决策，不是闲聊。模糊生活任务按“边界澄清→品类清单→用户取舍→商品方案”推进；不要把生活任务直接跳成商品推荐。
 stage=clarify：尚不知道会改变清单品类或数量的场景条件时，最多问2个关键问题。根据场景选择问题，例如海边出行问同行人数及是否下水、玩沙或主要拍照；出租屋改造问范围及能否复原。澄清问题必须写进text，不能只填question字段。
-stage=plan：场景边界足够后，先输出清单框架。tasks必须是可逐项核对、可购买的具体物品或明确品类，最多6项；禁止用“电子设备”“衣物与鞋履”“日常用品”等大类代替物品。例：手机防水袋、舒适步行鞋、换洗上衣、充电器。optional最多6项，并标出触发条件。护照、签证、车票、离线地图/翻译App等不可通过商品目录购买的内容放进prep提醒，不得当商品推荐或必买采购项。text展示必备、建议补充、按需条件项；优先级由前端控件收集，不要在text里重复追问。已有物品只按用户明确表达记录；未提及保持待确认，不得假设没有。用户已说过偏好时不重复问。
+stage=plan：场景边界足够后，先输出清单框架。tasks必须是可逐项核对、可购买的具体物品或明确品类，最多6项；禁止用“电子设备”“衣物与鞋履”“日常用品”等大类代替物品。例：手机防水袋、舒适步行鞋、换洗上衣、充电器。optional最多6项，必须与tasks不重复，并标出触发条件。护照、签证、车票、离线地图/翻译App等不可通过商品目录购买的内容放进prep提醒，不得当商品推荐或必买采购项。text展示必备、建议补充、按需条件项；优先级由前端控件收集，不要在text里重复追问。已有物品只按用户明确表达记录；未提及保持待确认，不得假设没有。用户已说过偏好时不重复问。若还需要一个会改变品类或尺寸的关键答案，应返回stage=clarify并只问这个问题；stage=plan时question必须为空。
 stage=search：仅在清单框架已展示且用户已反馈偏好/调整，或用户明确要买某个具体品类时生成商品方案。若用户未提已有物品，不得假定没有；将相关商品标记为待核对候选，并在text中简洁说明已有物品尚未确认。不得把候选商品都称为必买。用户偏好已在前文说明时不可重复追问。
 已展示清单后，用户可能只回答取舍偏好，也可能同时补充已有物品或改变活动；按反馈更新清单，不重复问已知信息。若用户改变活动（如从可能下水改为不下水），移除因此不再需要的品类。简单明确的单品需求可跳过生活任务清单。
 用户已经给出爱好、使用困扰或明确品类时，可先形成可调整方案；不必把预算、目的地逐项问齐才推荐。库存无对应品类时诚实说明。
@@ -74,6 +112,11 @@ JSON格式：{goal,stage,warmth,question,text,budget:null或人民币总预算�
     unknowns: Array.isArray(planRaw.unknowns) ? planRaw.unknowns.slice(0, 4).map(String) : [],
     directions: Array.isArray(planRaw.directions) ? planRaw.directions.slice(0, 3) : [],
   };
+  const normalizeSlot = value => value.toLowerCase().replace(/[\s，,、/]+/g, '');
+  plan.tasks = [...new Map(plan.tasks.map(item => [normalizeSlot(item), item])).values()];
+  const taskSlots = new Set(plan.tasks.map(normalizeSlot));
+  plan.optional = [...new Map(plan.optional.filter(item => !taskSlots.has(normalizeSlot(item))).map(item => [normalizeSlot(item), item])).values()];
+  if (plan.stage === 'plan' && plan.question) plan.stage = 'clarify';
   if (plan.stage === 'search' && history.length > 1) {
     const hasPlanTurn = history.slice(0, -1).some(message => message.role === 'assistant' && /基础准备|必备(?:清单|品类)?|建议补充|按需(?:准备|项)|清单框架|准备清单/.test(message.content));
     const hasPreference = plan.preferences.length > 0;
@@ -83,6 +126,8 @@ JSON格式：{goal,stage,warmth,question,text,budget:null或人民币总预算�
   if (plan.stage === 'plan') return { plan, text: String(planRaw.text || `${plan.warmth}\n先按当前场景整理准备清单：${plan.tasks.join('、')}。告诉我你更看重哪方面；已有的物品也可以顺便说，我会从采购项里扣除。`).slice(0, 600), groups: [], mode: 'live' };
   const eligible = filterCatalog(plan);
   if (!eligible.length) return { plan, text: `${plan.warmth}\n模拟目录中没有同时满足预算、配送地及排除条件的商品。你愿意调整哪个条件？`, groups: [], mode: 'live' };
+  const candidates = relevantProducts(eligible, plan, history.at(-1)?.content || '');
+  if (!candidates.length) return { plan, text: '模拟商品目录里没有找到与这些待购项目相关的候选，我不会用不相干商品补位。可以调整待购项目或跳过商品推荐。', groups: [], mode: 'live' };
   const result = await callModel([{ role: 'system', content:
     `你是购物方案助手，只输出JSON。以下是规则层已过滤的模拟商品目录。
 请把结果组织成“最小够用的采购方案”，不是一批互斥的商品推荐。每个group代表一个具体采购任务，例如“手机防水袋”“步行鞋”，products是该任务下的1-2个可替代商品；若目录里有至少两个相关选项，优先给两个方便比较，只有一个或没有时如实说明，绝不拿不相关商品凑数。priority只能是must_buy、optional或candidate。
@@ -93,8 +138,8 @@ JSON格式：{goal,stage,warmth,question,text,budget:null或人民币总预算�
 text最多180字：一句温度回应、当前方案一句总结、一个下一步问题。不要长开场、总结重复、寒暄或emoji。
 每个商品reason/tradeoff各最多45字。JSON：{text,groups:[{name,priority,products:[{id,reason,tradeoff}]}]}。
 计划：${JSON.stringify(plan)}
-商品：${JSON.stringify(eligible.map(({id,title,brand,category,subcategory,description,price,currency,highlights}) => ({id,title,brand,category,subcategory,description,price,currency,highlights})))}` }, ...history]);
-  const byId = new Map(eligible.map(p => [p.id, p]));
+商品候选（已按待购槽位缩小范围）：${JSON.stringify(candidates.map(({id,title,brand,category,subcategory,description,price,currency,highlights}) => ({id,title,brand,category,subcategory,description,price,currency,highlights})))}` }, ...history]);
+  const byId = new Map(candidates.map(p => [p.id, p]));
   const seen = new Set();
   let groups = (Array.isArray(result.groups) ? result.groups : []).slice(0, 3).map(group => ({
     name: String(group.name || '推荐方向').slice(0, 50),
@@ -117,8 +162,8 @@ text最多180字：一句温度回应、当前方案一句总结、一个下一�
     '当前模拟目录里没有足够相关的选择，我不想给你凑一份清单。你愿意尝试哪个其他方向？';
   return { plan, groups, mode: 'live', budget: { limit: plan.budget, minimum_total: requiredTotal, optional_total: optionalTotal, status: overBudget ? 'required_items_over_budget' : 'within_budget' },
     text: overBudget ? `${fallbackText.slice(0, 300)} 必需项按当前目录最低约 ${requiredTotal} CNY，超过预算 ${plan.budget} CNY；可以调整预算或告诉我哪项能替代。` : fallbackText,
-    trace: { catalogSize: catalog.length, eligible: eligible.length, selected: seen.size, minimumTotal: requiredTotal,
-      retrieval: 'LLM catalog selection with rule constraints; no vector retrieval in this serverless endpoint' } };
+    trace: { catalogSize: catalog.length, eligible: eligible.length, candidatePool: candidates.length, selected: seen.size, minimumTotal: requiredTotal,
+      retrieval: 'rule-filtered slot keyword recall + LLM selection; no vector retrieval in this serverless endpoint' } };
 }
 
 export default async function handler(req, res) {

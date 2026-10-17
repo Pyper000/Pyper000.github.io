@@ -29,15 +29,15 @@ test('simulated catalog covers core categories and every mapped subcategory', ()
 });
 
 test('budget, destination and rejection are enforced before model selection', async () => {
-  const plan = { goal: 'gift', stage: 'search', budget: 100, destination: 'CN', excludes: ['茶具'], directions: [] };
+  const plan = { goal: 'gift', stage: 'search', budget: 150, destination: 'CN', excludes: [], tasks: ['茶点礼盒'], must_buy: ['茶点礼盒'], directions: [] };
   const eligible = filterCatalog(plan);
   assert(eligible.length > 0);
-  assert(eligible.every(p => p.price <= 100 && p.ships_to.includes('CN') && !p.title.includes('茶具')));
-  const responses = [plan, { text: '推荐', groups: [{ name: '错误', products: [{ id: 'invented' }, { id: 'P1006' }] }, { name: '选择', products: [{ id: eligible[0].id }] }] }];
+  assert(eligible.every(p => p.price <= 150 && p.ships_to.includes('CN')));
+  const responses = [plan, { text: '推荐', groups: [{ name: '错误', products: [{ id: 'invented' }, { id: 'P1006' }] }, { name: '选择', products: [{ id: 'P1072' }] }] }];
   const result = await decide([{ role: 'user', content: '礼物' }], async () => responses.shift());
   assert.equal(result.groups[0].products.length, 1);
-  assert.equal(result.groups[0].products[0].id, eligible[0].id);
-  assert.equal(result.groups[0].products[0].price, eligible[0].price);
+  assert.equal(result.groups[0].products[0].id, 'P1072');
+  assert.equal(result.groups[0].products[0].price, 128);
 });
 
 test('explicitly reusable items are not offered as products to buy again', () => {
@@ -69,6 +69,18 @@ test('scene planning returns a category checklist before matching any products',
   assert.deepEqual(result.plan.reusable, []);
 });
 
+test('a plan that still has a material question is presented as clarification', async () => {
+  const result = await decide([{ role: 'user', content: '第一次租房，想布置卧室' }], async () => ({
+    goal: '出租屋卧室布置', stage: 'plan', warmth: '先梳理卧室必需品。',
+    question: '退租时是否需要恢复原状？', text: '先确认墙面是否允许打孔。',
+    tasks: ['床垫', '窗帘'], optional: ['窗帘'],
+  }));
+  assert.equal(result.plan.stage, 'clarify');
+  assert.match(result.text, /退租时是否需要恢复原状/);
+  assert.deepEqual(result.plan.optional, []);
+  assert.deepEqual(result.groups, []);
+});
+
 test('non-purchasable preparation reminders stay outside the product checklist', async () => {
   const result = await decide([{ role: 'user', content: '去意大利出差一周，帮我整理行前准备' }], async () => ({
     goal: '意大利出差', stage: 'plan', text: '必备：转换插头。行前提醒：确认护照有效期。',
@@ -95,13 +107,34 @@ test('preference feedback after checklist proceeds to product matching without r
   assert.deepEqual(result.plan.reusable, []);
 });
 
+test('product selection only receives candidates relevant to the purchase slots', async () => {
+  const responses = [
+    { goal: '海边出行', stage: 'search', preferences: ['轻便'], tasks: ['旅行毛巾'], must_buy: ['旅行毛巾'], optional: [], reusable: [], not_buy: [], unknowns: [] },
+    { text: '先补旅行毛巾。', groups: [{ name: '旅行毛巾', priority: 'candidate', products: [{ id: 'P1007', reason: '适合近水拍照', tradeoff: '厚度未提供' }] }] },
+  ];
+  let selectionPrompt = '';
+  const result = await decide([
+    { role: 'user', content: '周末去海边，可能下水' },
+    { role: 'assistant', content: '清单：旅行毛巾。优先轻便还是功能齐全？' },
+    { role: 'user', content: '优先轻便，旅行毛巾我没有' },
+  ], async messages => {
+    const response = responses.shift();
+    if (response.groups) selectionPrompt = messages[0].content;
+    return response;
+  });
+  assert.match(selectionPrompt, /旅行毛巾/);
+  assert(!selectionPrompt.includes('床垫'));
+  assert.equal(result.groups[0].products[0].id, 'P1007');
+  assert(result.trace.candidatePool < result.trace.eligible);
+});
+
 test('shopping plan exposes task slots, reusable items and unknowns', async () => {
   const responses = [
-    { goal: '周末海边出行', stage: 'search', warmth: '先把行李控制住。', question: '需要带电脑吗？', budget: 500, tasks: ['轻量防晒', '随身收纳'], reusable: ['双肩包'], unknowns: ['是否带电脑'], directions: [] },
-    { text: '先补齐防晒和收纳，已有双肩包不用重复买。', groups: [{ name: '轻量防晒', priority: 'must_buy', products: [{ id: 'P1006', reason: '适合场景', tradeoff: '收纳体积未提供' }] }] },
+    { goal: '周末海边出行', stage: 'search', warmth: '先把行李控制住。', question: '需要带电脑吗？', budget: 500, tasks: ['旅行茶具', '随身收纳'], reusable: ['双肩包'], unknowns: ['是否带电脑'], directions: [] },
+    { text: '先补齐旅行茶具，已有双肩包不用重复买。', groups: [{ name: '旅行茶具', priority: 'must_buy', products: [{ id: 'P1006', reason: '适合场景', tradeoff: '收纳体积未提供' }] }] },
   ];
   const result = await decide([{ role: 'user', content: '周末去海边两天，家里有双肩包，预算500' }], async () => responses.shift());
-  assert.deepEqual(result.plan.tasks, ['轻量防晒', '随身收纳']);
+  assert.deepEqual(result.plan.tasks, ['旅行茶具', '随身收纳']);
   assert.deepEqual(result.plan.reusable, ['双肩包']);
   assert.deepEqual(result.plan.unknowns, ['是否带电脑']);
   assert.equal(result.groups[0].products[0].id, 'P1006');
