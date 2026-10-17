@@ -117,6 +117,8 @@ JSON格式：{goal,stage,warmth,question,text,budget:null或人民币总预算�
   const taskSlots = new Set(plan.tasks.map(normalizeSlot));
   plan.optional = [...new Map(plan.optional.filter(item => !taskSlots.has(normalizeSlot(item))).map(item => [normalizeSlot(item), item])).values()];
   if (plan.stage === 'plan' && plan.question) plan.stage = 'clarify';
+  const checklistConfirmed = /清单已逐项确认/.test(history.at(-1)?.content || '');
+  if (checklistConfirmed) plan.stage = 'search';
   if (plan.stage === 'search' && history.length > 1) {
     const hasPlanTurn = history.slice(0, -1).some(message => message.role === 'assistant' && /基础准备|必备(?:清单|品类)?|建议补充|按需(?:准备|项)|清单框架|准备清单/.test(message.content));
     const hasPreference = plan.preferences.length > 0;

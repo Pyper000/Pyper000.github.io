@@ -128,6 +128,20 @@ test('product selection only receives candidates relevant to the purchase slots'
   assert(result.trace.candidatePool < result.trace.eligible);
 });
 
+test('an explicitly confirmed checklist advances to product matching even if the planner repeats plan stage', async () => {
+  const responses = [
+    { goal: '海边出行', stage: 'plan', tasks: ['旅行毛巾'], must_buy: ['旅行毛巾'], preferences: ['轻便'], budget: 300 },
+    { text: '给你两款旅行毛巾对比。', groups: [{ name: '旅行毛巾', priority: 'must_buy', products: [{ id: 'P1007', reason: '速干轻薄', tradeoff: '具体厚度未提供' }] }] },
+  ];
+  const result = await decide([
+    { role: 'user', content: '海边旅行' },
+    { role: 'assistant', content: '清单：旅行毛巾。' },
+    { role: 'user', content: '清单已逐项确认。明确缺少、需要购买的必备项：旅行毛巾。预算300元。优先考虑轻便。' },
+  ], async () => responses.shift());
+  assert.equal(result.plan.stage, 'search');
+  assert.equal(result.groups[0].products[0].id, 'P1007');
+});
+
 test('shopping plan exposes task slots, reusable items and unknowns', async () => {
   const responses = [
     { goal: '周末海边出行', stage: 'search', warmth: '先把行李控制住。', question: '需要带电脑吗？', budget: 500, tasks: ['旅行茶具', '随身收纳'], reusable: ['双肩包'], unknowns: ['是否带电脑'], directions: [] },
