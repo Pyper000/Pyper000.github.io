@@ -4,6 +4,11 @@ type Message = { role: 'user' | 'assistant'; content: string };
 type Product = { id: string; title: string; brand: string; category: string; subcategory: string; price: number; currency: string; highlights: string[]; reason: string; tradeoff: string };
 type Result = { text: string; plan: { goal: string; stage: string; budget: number | null; destination: string | null; excludes: string[]; tasks?: string[]; must_buy?: string[]; optional?: string[]; prep?: string[]; reusable?: string[]; not_buy?: string[]; unknowns?: string[]; preferences?: string[] }; groups: { name: string; priority: 'must_buy' | 'optional' | 'candidate'; products: Product[] }[]; budget?: { limit: number | null; minimum_total: number; optional_total: number; status: string } };
 type SlotStatus = 'have' | 'buy' | 'unknown' | 'skip';
+type ConfirmedChecklist = {
+  goal: string; budget: number | null; destination: string | null; preference: string;
+  tasks: string[]; must_buy: string[]; optional: string[]; reusable: string[]; not_buy: string[];
+  unknowns: string[]; prep: string[]; excludes: string[];
+};
 type TestRun = {
   test_id: string; tester_id: string; scenario_id: string; version: string; device_type: string;
   start_time: string; end_time: string; duration_sec: number; user_turns: number; assistant_turns: number;
@@ -19,7 +24,7 @@ type TestRun = {
 };
 
 const STORAGE_KEY = 'shopmind-usability-tests-v1';
-const VERSION = 'live-chat-v4-itemized-checklist';
+const VERSION = 'live-chat-v5-structured-checklist';
 const columns: (keyof TestRun)[] = ['test_id', 'tester_id', 'scenario_id', 'version', 'device_type', 'start_time', 'end_time', 'duration_sec', 'user_turns', 'assistant_turns', 'clarify_turns', 'plan_updates', 'plan_task_slots', 'plan_must_buy_slots', 'plan_optional_slots', 'plan_reusable_items', 'plan_not_buy_items', 'plan_unknown_items', 'budget_limit_cny', 'minimum_required_total_cny', 'optional_total_cny', 'budget_status', 'compare_selection_actions', 'model_compare_requests', 'product_candidates_returned', 'task_completed', 'completion_step', 'abandon_reason', 'satisfaction_1to5', 'ease_1to5', 'trust_1to5', 'plan_completeness_1to5', 'omission_confidence_1to5', 'budget_understanding_1to5', 'tradeoff_understanding_1to5', 'decision_confidence_1to5', 'stuck_step', 'error_count'];
 
 function readRuns(): TestRun[] {
@@ -88,7 +93,7 @@ export default function LiveChat() {
     setActiveRun(null);
   }
 
-  async function send(query = input, retry = false) {
+  async function send(query = input, retry = false, checklist?: ConfirmedChecklist) {
     if (!query.trim() || busy) return;
     if (!base) { setError('真实对话服务正在部署，请稍后再试。'); return; }
     const history = retry ? messages : [...messages, { role: 'user' as const, content: query }];
@@ -96,7 +101,7 @@ export default function LiveChat() {
     setMessages(history); setInput(''); setBusy(true); setError('');
     try {
       const response = await fetch(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history }), signal: AbortSignal.timeout(65000) });
+        body: JSON.stringify({ history, ...(checklist ? { checklist } : {}) }), signal: AbortSignal.timeout(65000) });
       const data = await response.json() as Result & { error?: string };
       if (!response.ok) throw new Error(data.error || '服务暂时不可用');
       setResult(data); setSelected([]);
@@ -149,7 +154,12 @@ export default function LiveChat() {
       planPriority ? `优先考虑${priorityLabels[planPriority]}。` : '请根据清单先匹配商品，并询问我最关键的取舍偏好。',
       '请只为明确缺少的必备项和我选择准备的可选项匹配商品；已有、待确认和暂缓项不要推荐。商品候选后说明选择与取舍，并汇总预算。',
     ].join(' ');
-    void send(summary);
+    void send(summary, false, {
+      goal: result.plan.goal, budget: planBudget ? Number(planBudget) : result.plan.budget,
+      destination: result.plan.destination, preference: planPriority ? priorityLabels[planPriority] : '',
+      tasks: [...required, ...optional], must_buy: missing, optional: addOptional,
+      reusable: have, not_buy: deferred, unknowns: unknown, prep: result.plan.prep ?? [], excludes: result.plan.excludes ?? [],
+    });
   }
   return <section className="live-section" id="live">
     <div className="section-heading"><p className="eyebrow">PRODUCT / LIVE CONVERSATION</p><h2>把生活任务变成一套刚刚好的采购方案</h2><p>ShopMind 会先理解场景，再追问关键条件，输出可解释、可调整的商品方案；商品与账户均为模拟数据，不涉及真实交易。</p></div>

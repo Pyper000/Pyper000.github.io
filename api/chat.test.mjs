@@ -142,6 +142,24 @@ test('an explicitly confirmed checklist advances to product matching even if the
   assert.equal(result.groups[0].products[0].id, 'P1007');
 });
 
+test('structured checklist skips repeated requirement parsing but keeps product explanation call', async () => {
+  let calls = 0;
+  const result = await decide([
+    { role: 'user', content: '海边出行' },
+    { role: 'assistant', content: '已列出旅行毛巾。' },
+    { role: 'user', content: '清单已逐项确认。需要购买旅行毛巾。' },
+  ], async () => {
+    calls += 1;
+    return { text: '按轻便选择。', groups: [{ name: '旅行毛巾', priority: 'must_buy', products: [{ id: 'P1007', reason: '速干', tradeoff: '三件装' }] }] };
+  }, {
+    goal: '海边出行', budget: 300, destination: 'CN', preference: '轻便少占空间',
+    tasks: ['旅行毛巾'], must_buy: ['旅行毛巾'], optional: [], reusable: [], not_buy: [], unknowns: [], prep: [], excludes: [],
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.plan.stage, 'search');
+  assert.equal(result.groups[0].products[0].id, 'P1007');
+});
+
 test('shopping plan exposes task slots, reusable items and unknowns', async () => {
   const responses = [
     { goal: '周末海边出行', stage: 'search', warmth: '先把行李控制住。', question: '需要带电脑吗？', budget: 500, tasks: ['旅行茶具', '随身收纳'], reusable: ['双肩包'], unknowns: ['是否带电脑'], directions: [] },

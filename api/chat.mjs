@@ -32,7 +32,8 @@ function slotTokens(text) {
 }
 
 function relevantProducts(products, plan, fallbackQuery) {
-  const slots = [...new Set([...(plan.must_buy || []), ...(plan.optional || []), ...(plan.tasks || [])])];
+  const purchaseSlots = [...new Set([...(plan.must_buy || []), ...(plan.optional || [])])];
+  const slots = purchaseSlots.length ? purchaseSlots : [...new Set(plan.tasks || [])];
   const aliases = {
     '衣物收纳': ['旅行收纳袋', '压缩收纳', '衣物分装'],
     '随身收纳': ['收纳袋', '收纳包', '证件收纳'],
@@ -74,8 +75,23 @@ async function model(messages) {
   return parseJson(body.choices[0].message.content);
 }
 
-export async function decide(history, callModel = model) {
-  const planRaw = await callModel([{ role: 'system', content:
+export async function decide(history, callModel = model, confirmedChecklist = null) {
+  const planRaw = confirmedChecklist ? {
+    goal: confirmedChecklist.goal,
+    stage: 'search',
+    budget: confirmedChecklist.budget,
+    destination: confirmedChecklist.destination,
+    preferences: confirmedChecklist.preference ? [confirmedChecklist.preference] : [],
+    tasks: confirmedChecklist.tasks,
+    must_buy: confirmedChecklist.must_buy,
+    optional: confirmedChecklist.optional,
+    reusable: confirmedChecklist.reusable,
+    not_buy: confirmedChecklist.not_buy,
+    unknowns: confirmedChecklist.unknowns,
+    prep: confirmedChecklist.prep,
+    excludes: confirmedChecklist.excludes,
+    directions: [],
+  } : await callModel([{ role: 'system', content:
     `你是购物需求规划器。只输出JSON。根据对话理解生活目标，不限送礼，也包括通勤、出租屋、旅行。
 区分用户事实与假设；不推断年龄、健康、收入，不把收礼人偏好当买家偏好。
 同一目标保留已确认预算和目的地，明确改条件则更新，换目标不继承临时条件。
@@ -119,7 +135,7 @@ JSON格式：{goal,stage,warmth,question,text,budget:null或人民币总预算�
   if (plan.stage === 'plan' && plan.question) plan.stage = 'clarify';
   const checklistConfirmed = /清单已逐项确认/.test(history.at(-1)?.content || '');
   if (checklistConfirmed) plan.stage = 'search';
-  if (plan.stage === 'search' && history.length > 1) {
+  if (!confirmedChecklist && plan.stage === 'search' && history.length > 1) {
     const hasPlanTurn = history.slice(0, -1).some(message => message.role === 'assistant' && /基础准备|必备(?:清单|品类)?|建议补充|按需(?:准备|项)|清单框架|准备清单/.test(message.content));
     const hasPreference = plan.preferences.length > 0;
     if (!hasPlanTurn && !hasPreference && !['clarify', 'plan'].includes(planRaw.stage)) plan.stage = 'plan';
@@ -187,7 +203,8 @@ export default async function handler(req, res) {
   // ponytail: per-instance limits; use a shared quota store for multi-instance production traffic.
   if (times.length >= 20 || active.size >= 2 || active.has(ip)) return res.status(429).json({ error: '演示服务繁忙或达到调用上限，请稍后重试' });
   traffic.set(ip, [...times, now]); active.add(ip);
-  try { return res.status(200).json(await decide(body.history)); }
+  const checklist = body.checklist && typeof body.checklist === 'object' ? body.checklist : null;
+  try { return res.status(200).json(await decide(body.history, model, checklist)); }
   catch (error) {
     const message = error.message === 'MODEL_NOT_CONFIGURED' ? '在线模型尚未配置' :
       error.message === 'PROVIDER_401' ? '模型认证失败，请联系作品作者' : '模型暂时不可用或处理超时，请重试';
