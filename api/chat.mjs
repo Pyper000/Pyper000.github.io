@@ -7,6 +7,8 @@ const subcategories = new Map(Object.entries(taxonomy).flatMap(([category, group
   Object.entries(groups).flatMap(([subcategory, ids]) => ids.map(id => [id, { category, subcategory }]))));
 const catalog = catalogData.map(product => ({ ...product, ...subcategories.get(product.id) }));
 const destinations = new Set(catalog.flatMap(p => p.ships_to));
+let catalogVectorsPromise;
+let qdrantReadyPromise;
 
 export function filterCatalog(plan) {
   const excluded = [...(plan.excludes || []), ...(plan.reusable || []), ...(plan.not_buy || [])].filter(Boolean);
@@ -56,7 +58,200 @@ function relevantProducts(products, plan, fallbackQuery) {
     }).filter(item => item.score > 0).sort((left, right) => right.score - left.score || left.product.price - right.product.price);
     for (const { product } of ranked.slice(0, 6)) picked.set(product.id, product);
   }
-  return [...picked.values()].slice(0, 24);
+  return [...picked.values()];
+}
+
+function balancedCandidates(products, plan) {
+  const slots = [...new Set([...(plan.must_buy || []), ...(plan.optional || [])])];
+  if (!slots.length) return products;
+  const aliases = {
+    '衣物收纳': ['旅行收纳袋', '压缩收纳', '衣物分装'],
+    '随身收纳': ['收纳袋', '收纳包', '证件收纳'],
+    '收纳': ['收纳袋', '收纳包', '衣物分装'],
+    '轻量防晒': ['防晒衣', '防晒霜', '遮阳帽'],
+    '主灯': ['露营灯', '便携灯'],
+    '备用灯': ['手电', '钥匙扣手电'],
+  };
+  const bySlot = new Map();
+  for (const slot of slots) {
+    const queries = [slot, ...(aliases[slot] || [])];
+    const ranked = new Map();
+    for (const query of queries) {
+      const normalizedQuery = String(query).toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+      const queryTokens = slotTokens(query);
+      products.forEach((product, index) => {
+        const text = `${product.title} ${product.brand} ${product.category} ${product.subcategory} ${product.description} ${(product.highlights || []).join(' ')}`;
+        const normalizedText = text.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+        const productTokens = slotTokens(text);
+        const overlap = [...queryTokens].filter(token => productTokens.has(token)).length;
+        const exact = normalizedQuery && normalizedText.includes(normalizedQuery) ? 100 : 0;
+        const score = overlap + exact;
+        const previous = ranked.get(product.id);
+        if (!previous || score > previous.score) ranked.set(product.id, { product, index, score });
+      });
+    }
+    bySlot.set(slot, [...ranked.values()].sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, 5).map(item => item.product));
+  }
+  const picked = new Map();
+  for (let rank = 0; rank < 5; rank += 1) {
+    for (const productsForSlot of bySlot.values()) {
+      const product = productsForSlot[rank];
+      if (product) picked.set(product.id, product);
+    }
+  }
+  return [...picked.values()];
+}
+
+function retrievalSignature(plan) {
+  return JSON.stringify({
+    slots: [...new Set([...(plan.must_buy || []), ...(plan.optional || [])])].sort(),
+    destination: plan.destination || null, budget: plan.budget ?? null,
+    excludes: [...(plan.excludes || []), ...(plan.reusable || []), ...(plan.not_buy || [])].sort(),
+  });
+}
+
+async function embedding(inputs) {
+  const key = process.env.EMBEDDING_API_KEY || process.env.LLM_API_KEY;
+  const base = (process.env.EMBEDDING_BASE_URL || process.env.LLM_BASE_URL || 'https://api.siliconflow.cn/v1').replace(/\/$/, '');
+  const response = await fetch(`${base}/embeddings`, {
+    method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: process.env.EMBEDDING_MODEL || 'BAAI/bge-m3', input: inputs }),
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!response.ok) throw new Error(`EMBEDDING_PROVIDER_${response.status}`);
+  const body = await response.json();
+  if (!Array.isArray(body.data) || body.data.length !== inputs.length) throw new Error('EMBEDDING_RESPONSE_INVALID');
+  return body.data.sort((a, b) => a.index - b.index).map(item => item.embedding);
+}
+
+async function catalogVectors() {
+  if (!catalogVectorsPromise) catalogVectorsPromise = (async () => {
+    const batches = [];
+    for (let start = 0; start < catalog.length; start += 8) batches.push(catalog.slice(start, start + 8));
+    const embedded = [];
+    for (let start = 0; start < batches.length; start += 4) {
+      const group = batches.slice(start, start + 4);
+      embedded.push(...await Promise.all(group.map(batch => embedding(batch.map(p => `${p.title} ${p.brand} ${p.category} ${p.subcategory} ${p.description} ${(p.highlights || []).join(' ')}`)))));
+    }
+    const vectors = embedded.flat();
+    const byId = new Map(catalog.map((product, index) => [product.id, vectors[index]]));
+    if (process.env.QDRANT_URL) await ensureQdrantIndex(vectors);
+    return byId;
+  })().catch(error => { catalogVectorsPromise = undefined; throw error; });
+  return catalogVectorsPromise;
+}
+
+async function qdrant(path, options = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(process.env.QDRANT_API_KEY ? { 'api-key': process.env.QDRANT_API_KEY } : {}) };
+  return fetch(`${process.env.QDRANT_URL.replace(/\/$/, '')}${path}`, { ...options, headers: { ...headers, ...options.headers }, signal: AbortSignal.timeout(8000) });
+}
+
+async function ensureQdrantIndex(vectors) {
+  if (!qdrantReadyPromise) qdrantReadyPromise = (async () => {
+    const name = encodeURIComponent(process.env.QDRANT_COLLECTION || 'shopmind_products');
+    let response = await qdrant(`/collections/${name}`);
+    if (response.status === 404) {
+      response = await qdrant(`/collections/${name}`, { method: 'PUT', body: JSON.stringify({ vectors: { size: vectors[0].length, distance: 'Cosine' } }) });
+      if (!response.ok) throw new Error(`QDRANT_CREATE_${response.status}`);
+    } else if (!response.ok) throw new Error(`QDRANT_COLLECTION_${response.status}`);
+    for (let start = 0; start < catalog.length; start += 64) {
+      const points = catalog.slice(start, start + 64).map((product, offset) => ({ id: start + offset + 1, vector: vectors[start + offset], payload: { product_id: product.id } }));
+      response = await qdrant(`/collections/${name}/points?wait=true`, { method: 'PUT', body: JSON.stringify({ points }) });
+      if (!response.ok) throw new Error(`QDRANT_UPSERT_${response.status}`);
+    }
+    return name;
+  })().catch(error => { qdrantReadyPromise = undefined; throw error; });
+  return qdrantReadyPromise;
+}
+
+function cosine(left, right) {
+  let dot = 0, a = 0, b = 0;
+  for (let i = 0; i < Math.min(left.length, right.length); i += 1) { dot += left[i] * right[i]; a += left[i] ** 2; b += right[i] ** 2; }
+  return a && b ? dot / Math.sqrt(a * b) : 0;
+}
+
+async function semanticRecall(products, plan) {
+  const vectors = await catalogVectors();
+  const slots = [...new Set([...(plan.must_buy || []), ...(plan.optional || [])])];
+  const queries = slots.length ? slots : [plan.goal || ''];
+  const queryVectors = await embedding(queries.map(query => `${query} ${plan.goal || ''}`));
+  const recalled = new Map();
+  if (process.env.QDRANT_URL) {
+    try {
+      const name = await qdrantReadyPromise;
+      for (const queryVector of queryVectors) {
+        const response = await qdrant(`/collections/${name}/points/query`, { method: 'POST', body: JSON.stringify({ query: queryVector, limit: catalog.length, with_payload: true }) });
+        if (!response.ok) throw new Error(`QDRANT_QUERY_${response.status}`);
+        const body = await response.json();
+        const allowed = new Set(products.map(product => product.id));
+        const byId = new Map(catalog.map(product => [product.id, product]));
+        (body.result?.points || []).filter(point => allowed.has(point.payload?.product_id)).slice(0, 5)
+          .forEach(point => recalled.set(point.payload.product_id, byId.get(point.payload.product_id)));
+      }
+      if (recalled.size) return { candidates: [...recalled.values()], strategy: 'qdrant_embedding_recall' };
+    } catch { /* Qdrant unavailable: preserve semantic retrieval with the in-memory vector cache. */ }
+  }
+  for (const queryVector of queryVectors) {
+    products.map(product => ({ product, score: cosine(queryVector, vectors.get(product.id) || []) }))
+      .sort((a, b) => b.score - a.score || a.product.price - b.product.price).slice(0, 5)
+      .forEach(({ product }) => recalled.set(product.id, product));
+  }
+  return { candidates: [...recalled.values()], strategy: process.env.QDRANT_URL ? 'embedding_cosine_fallback' : 'embedding_cosine_recall' };
+}
+
+async function rerankCandidates(products, plan) {
+  if (!process.env.RERANKER_BASE_URL || !products.length) return products;
+  const response = await fetch(`${process.env.RERANKER_BASE_URL.replace(/\/$/, '')}/rerank`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(process.env.RERANKER_API_KEY ? { Authorization: `Bearer ${process.env.RERANKER_API_KEY}` } : {}) },
+    body: JSON.stringify({ model: process.env.RERANKER_MODEL || '',
+      query: `${[...(plan.must_buy || []), ...(plan.optional || [])].join(' ')} ${plan.preferences?.join(' ') || ''}`,
+      documents: products.map(p => `${p.title} ${p.description} ${(p.highlights || []).join(' ')}`) }),
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!response.ok) throw new Error(`RERANKER_PROVIDER_${response.status}`);
+  const body = await response.json();
+  if (!Array.isArray(body.results) || body.results.length !== products.length) throw new Error('RERANKER_RESPONSE_INVALID');
+  const scores = new Array(products.length);
+  for (const result of body.results) scores[result.index] = Number(result.relevance_score ?? result.score ?? 0);
+  return products.map((product, index) => ({ product, score: scores[index] ?? 0 }))
+    .sort((a, b) => b.score - a.score || a.product.price - b.product.price).map(item => item.product);
+}
+
+function keywordRerank(products, plan) {
+  const preferences = slotTokens((plan.preferences || []).join(' '));
+  return products.map(product => {
+    const text = `${product.title} ${product.description} ${(product.highlights || []).join(' ')}`;
+    const tokens = slotTokens(text);
+    const preferenceMatch = [...preferences].filter(token => tokens.has(token)).length;
+    return { product, score: preferenceMatch };
+  }).sort((a, b) => b.score - a.score || a.product.price - b.product.price).map(item => item.product);
+}
+
+async function searchCandidates(eligible, plan, context, fallbackQuery) {
+  const signature = retrievalSignature(plan);
+  const byId = new Map(eligible.map(product => [product.id, product]));
+  const reusablePool = context?.signature === signature && Array.isArray(context.candidate_ids)
+    ? context.candidate_ids.map(id => byId.get(id)).filter(Boolean) : null;
+  let candidates, strategy, action;
+  if (reusablePool?.length) {
+    candidates = reusablePool; action = 'filter_and_rerank'; strategy = 'cached_candidates';
+  } else {
+    try {
+      const recalled = await semanticRecall(eligible, plan); candidates = recalled.candidates; strategy = recalled.strategy;
+    } catch {
+      candidates = relevantProducts(eligible, plan, fallbackQuery); strategy = 'keyword_fallback';
+    }
+    action = 'recall';
+  }
+  if (process.env.RERANKER_BASE_URL && candidates.length) {
+    try { candidates = await rerankCandidates(candidates, plan); strategy += '_rerank'; }
+    catch { strategy += '_rerank_fallback'; }
+  } else if (reusablePool?.length) {
+    candidates = keywordRerank(candidates, plan);
+    strategy = 'cached_candidates_keyword_rerank';
+  }
+  return { candidates: balancedCandidates(candidates, plan), signature, action, strategy };
 }
 
 async function model(messages) {
@@ -67,7 +262,7 @@ async function model(messages) {
     headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: process.env.LLM_MODEL || 'deepseek-ai/DeepSeek-V3.2',
       messages, response_format: { type: 'json_object' }, temperature: 0.3,
-      max_tokens: 800, enable_thinking: false }),
+      max_tokens: 3200, enable_thinking: false }),
     signal: AbortSignal.timeout(28000),
   });
   if (!response.ok) throw new Error(`PROVIDER_${response.status}`);
@@ -75,7 +270,7 @@ async function model(messages) {
   return parseJson(body.choices[0].message.content);
 }
 
-export async function decide(history, callModel = model, confirmedChecklist = null) {
+export async function decide(history, callModel = model, confirmedChecklist = null, retrievalContext = null) {
   const planRaw = confirmedChecklist ? {
     goal: confirmedChecklist.goal,
     stage: 'search',
@@ -131,7 +326,8 @@ JSON格式：{goal,stage,warmth,question,text,budget:null或人民币总预算�
   const normalizeSlot = value => value.toLowerCase().replace(/[\s，,、/]+/g, '');
   plan.tasks = [...new Map(plan.tasks.map(item => [normalizeSlot(item), item])).values()];
   const taskSlots = new Set(plan.tasks.map(normalizeSlot));
-  plan.optional = [...new Map(plan.optional.filter(item => !taskSlots.has(normalizeSlot(item))).map(item => [normalizeSlot(item), item])).values()];
+  const optionalItems = plan.stage === 'plan' ? plan.optional.filter(item => !taskSlots.has(normalizeSlot(item))) : plan.optional;
+  plan.optional = [...new Map(optionalItems.map(item => [normalizeSlot(item), item])).values()];
   if (plan.stage === 'plan' && plan.question) plan.stage = 'clarify';
   const checklistConfirmed = /清单已逐项确认/.test(history.at(-1)?.content || '');
   if (checklistConfirmed) plan.stage = 'search';
@@ -144,13 +340,14 @@ JSON格式：{goal,stage,warmth,question,text,budget:null或人民币总预算�
   if (plan.stage === 'plan') return { plan, text: String(planRaw.text || `${plan.warmth}\n先按当前场景整理准备清单：${plan.tasks.join('、')}。告诉我你更看重哪方面；已有的物品也可以顺便说，我会从采购项里扣除。`).slice(0, 600), groups: [], mode: 'live' };
   const eligible = filterCatalog(plan);
   if (!eligible.length) return { plan, text: `${plan.warmth}\n模拟目录中没有同时满足预算、配送地及排除条件的商品。你愿意调整哪个条件？`, groups: [], mode: 'live' };
-  const candidates = relevantProducts(eligible, plan, history.at(-1)?.content || '');
+  const retrieval = await searchCandidates(eligible, plan, retrievalContext, history.at(-1)?.content || '');
+  const candidates = retrieval.candidates;
   if (!candidates.length) return { plan, text: '模拟商品目录里没有找到与这些待购项目相关的候选，我不会用不相干商品补位。可以调整待购项目或跳过商品推荐。', groups: [], mode: 'live' };
   const result = await callModel([{ role: 'system', content:
     `你是购物方案助手，只输出JSON。以下是规则层已过滤的模拟商品目录。
-请把结果组织成“最小够用的采购方案”，不是一批互斥的商品推荐。每个group代表一个具体采购任务，例如“手机防水袋”“步行鞋”，products是该任务下的1-2个可替代商品；若目录里有至少两个相关选项，优先给两个方便比较，只有一个或没有时如实说明，绝不拿不相关商品凑数。priority只能是must_buy、optional或candidate。
-优先完成用户任务，不以少买为目的删掉必要准备项；明确已有物品不再推荐，并在方案里说明复用。仅当用户明确说缺少某必需品类时才标must_buy；已有物品未确认时标candidate，体验提升项标optional。方案最多3个任务槽位，每个槽位最多2件替代商品。
-只能选择目录内id；明确品类或比较任务可只给一个槽位。已确认偏好时直接筛选，不再追加宽泛问题。
+请把结果组织成“最小够用的采购方案”，不是一批互斥的商品推荐。每个group对应一个已确认待购品类，products是该品类内可替代商品；目录有多少个相关候选就返回多少个，最多5个，便于对比。不要因只展示少数卡片而遗漏已经确认待购的品类，也绝不拿不相关商品凑数。priority只能是must_buy、optional或candidate。
+优先完成用户任务，不以少买为目的删掉必要准备项；明确已有物品不再推荐，并在方案里说明复用。仅当用户明确说缺少某必需品类时才标must_buy；已有物品未确认时标candidate，体验提升项标optional。方案最多6个已确认待购品类，每个品类最多5件候选。
+每个明确待购品类尽量对应一个group；最多6个group，每组最多5件候选。只能选择目录内id；明确品类或比较任务可只给一个槽位。已确认偏好时直接筛选，不再追加宽泛问题。
 不相关时不要硬凑，groups可以为空。不能声称看过浏览记录、买家评价、真实销量或真实物流。
 理由和不足必须依据目录，未知属性说未提供；不是医疗功效建议。不能虚构价格、配送和材质。
 text最多180字：一句温度回应、当前方案一句总结、一个下一步问题。不要长开场、总结重复、寒暄或emoji。
@@ -159,10 +356,10 @@ text最多180字：一句温度回应、当前方案一句总结、一个下一�
 商品候选（已按待购槽位缩小范围）：${JSON.stringify(candidates.map(({id,title,brand,category,subcategory,description,price,currency,highlights}) => ({id,title,brand,category,subcategory,description,price,currency,highlights})))}` }, ...history]);
   const byId = new Map(candidates.map(p => [p.id, p]));
   const seen = new Set();
-  let groups = (Array.isArray(result.groups) ? result.groups : []).slice(0, 3).map(group => ({
+  let groups = (Array.isArray(result.groups) ? result.groups : []).slice(0, 6).map(group => ({
     name: String(group.name || '推荐方向').slice(0, 50),
     priority: ['optional', 'candidate'].includes(group.priority) ? group.priority : 'must_buy',
-    products: (Array.isArray(group.products) ? group.products : []).slice(0, 2).flatMap(item => {
+    products: (Array.isArray(group.products) ? group.products : []).slice(0, 5).flatMap(item => {
       const p = byId.get(item.id);
       if (!p || seen.has(p.id)) return [];
       seen.add(p.id);
@@ -180,8 +377,9 @@ text最多180字：一句温度回应、当前方案一句总结、一个下一�
     '当前模拟目录里没有足够相关的选择，我不想给你凑一份清单。你愿意尝试哪个其他方向？';
   return { plan, groups, mode: 'live', budget: { limit: plan.budget, minimum_total: requiredTotal, optional_total: optionalTotal, status: overBudget ? 'required_items_over_budget' : 'within_budget' },
     text: overBudget ? `${fallbackText.slice(0, 300)} 必需项按当前目录最低约 ${requiredTotal} CNY，超过预算 ${plan.budget} CNY；可以调整预算或告诉我哪项能替代。` : fallbackText,
-    trace: { catalogSize: catalog.length, eligible: eligible.length, candidatePool: candidates.length, selected: seen.size, minimumTotal: requiredTotal,
-      retrieval: 'rule-filtered slot keyword recall + LLM selection; no vector retrieval in this serverless endpoint' } };
+    trace: { catalogSize: catalog.length, eligible: eligible.length, candidatePool: candidates.length, candidate_ids: candidates.map(p => p.id),
+      retrieval_signature: retrieval.signature, retrieval_action: retrieval.action, retrieval_strategy: retrieval.strategy,
+      selected: seen.size, minimumTotal: requiredTotal } };
 }
 
 export default async function handler(req, res) {
@@ -204,7 +402,8 @@ export default async function handler(req, res) {
   if (times.length >= 20 || active.size >= 2 || active.has(ip)) return res.status(429).json({ error: '演示服务繁忙或达到调用上限，请稍后重试' });
   traffic.set(ip, [...times, now]); active.add(ip);
   const checklist = body.checklist && typeof body.checklist === 'object' ? body.checklist : null;
-  try { return res.status(200).json(await decide(body.history, model, checklist)); }
+  const retrievalContext = body.retrieval_context && typeof body.retrieval_context === 'object' ? body.retrieval_context : null;
+  try { return res.status(200).json(await decide(body.history, model, checklist, retrievalContext)); }
   catch (error) {
     const message = error.message === 'MODEL_NOT_CONFIGURED' ? '在线模型尚未配置' :
       error.message === 'PROVIDER_401' ? '模型认证失败，请联系作品作者' : '模型暂时不可用或处理超时，请重试';

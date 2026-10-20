@@ -160,6 +160,29 @@ test('structured checklist skips repeated requirement parsing but keeps product 
   assert.equal(result.groups[0].products[0].id, 'P1007');
 });
 
+test('preference-only changes reuse the filtered candidate pool and rerank without recall', async () => {
+  const responses = [{ text: '按轻便优先。', groups: [{ name: '旅行毛巾', products: [{ id: 'P1007', reason: '速干', tradeoff: '厚度未知' }] }] }];
+  const result = await decide([{ role: 'user', content: '按轻便优先' }], async () => responses.shift(), {
+    goal: '海边出行', budget: null, destination: null, preference: '轻便少占空间',
+    tasks: ['旅行毛巾'], must_buy: ['旅行毛巾'], optional: [], reusable: [], not_buy: [], unknowns: [], prep: [], excludes: [],
+  }, { signature: '{"slots":["旅行毛巾"],"destination":null,"budget":null,"excludes":[]}', candidate_ids: ['P1007', 'P1014'] });
+  assert.equal(result.trace.retrieval_action, 'filter_and_rerank');
+  assert.equal(result.trace.retrieval_strategy, 'cached_candidates_keyword_rerank');
+  assert.deepEqual(new Set(result.trace.candidate_ids), new Set(['P1007', 'P1014']));
+});
+
+test('purchase-slot or hard-constraint changes trigger fresh candidate recall', async () => {
+  const result = await decide([{ role: 'user', content: '只买手机防水袋，预算200' }], async () => ({
+    text: '给你防水袋候选。', groups: [{ name: '手机防水袋', products: [{ id: 'P1023', reason: '适用近水场景', tradeoff: '防水等级未提供' }] }],
+  }), {
+    goal: '海边出行', budget: 200, destination: 'CN', preference: '轻便', tasks: ['手机防水袋'],
+    must_buy: ['手机防水袋'], optional: [], reusable: ['双肩包'], not_buy: [], unknowns: [], prep: [], excludes: [],
+  }, { signature: 'previous-state', candidate_ids: ['P1007'] });
+  assert.equal(result.trace.retrieval_action, 'recall');
+  assert.equal(result.trace.retrieval_strategy, 'keyword_fallback');
+  assert(!result.trace.candidate_ids.includes('P1007'));
+});
+
 test('shopping plan exposes task slots, reusable items and unknowns', async () => {
   const responses = [
     { goal: '周末海边出行', stage: 'search', warmth: '先把行李控制住。', question: '需要带电脑吗？', budget: 500, tasks: ['旅行茶具', '随身收纳'], reusable: ['双肩包'], unknowns: ['是否带电脑'], directions: [] },
@@ -200,4 +223,20 @@ test('reports optional spend separately from the required plan total', async () 
   const result = await decide([{ role: 'user', content: '露营灯预算300' }], async () => responses.shift());
   assert.equal(result.budget.minimum_total, 89);
   assert.equal(result.budget.optional_total, 45);
+});
+
+test('keeps relevant candidates for every confirmed purchase slot', async () => {
+  const result = await decide([{ role: 'user', content: '按这两类预算内匹配' }], async () => ({
+    text: '两类都保留候选。', groups: [
+      { name: '行李收纳', priority: 'must_buy', products: [{ id: 'P1014', reason: '分装衣物', tradeoff: '容量未知' }] },
+      { name: '手机防水袋', priority: 'must_buy', products: [{ id: 'P1116', reason: '近水防护', tradeoff: '防水等级未核实' }] },
+    ],
+  }), {
+    goal: '海边出行', budget: 500, destination: 'CN', preference: '轻便',
+    tasks: ['行李收纳', '手机防水袋'], must_buy: ['行李收纳', '手机防水袋'], optional: [],
+    reusable: [], not_buy: [], unknowns: [], prep: [], excludes: [],
+  });
+  assert(result.trace.candidate_ids.includes('P1014'));
+  assert(result.trace.candidate_ids.includes('P1116'));
+  assert.equal(result.groups.length, 2);
 });

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 type Message = { role: 'user' | 'assistant'; content: string };
 type Product = { id: string; title: string; brand: string; category: string; subcategory: string; price: number; currency: string; highlights: string[]; reason: string; tradeoff: string };
-type Result = { text: string; plan: { goal: string; stage: string; budget: number | null; destination: string | null; excludes: string[]; tasks?: string[]; must_buy?: string[]; optional?: string[]; prep?: string[]; reusable?: string[]; not_buy?: string[]; unknowns?: string[]; preferences?: string[] }; groups: { name: string; priority: 'must_buy' | 'optional' | 'candidate'; products: Product[] }[]; budget?: { limit: number | null; minimum_total: number; optional_total: number; status: string } };
+type Result = { text: string; plan: { goal: string; stage: string; budget: number | null; destination: string | null; excludes: string[]; tasks?: string[]; must_buy?: string[]; optional?: string[]; prep?: string[]; reusable?: string[]; not_buy?: string[]; unknowns?: string[]; preferences?: string[] }; groups: { name: string; priority: 'must_buy' | 'optional' | 'candidate'; products: Product[] }[]; budget?: { limit: number | null; minimum_total: number; optional_total: number; status: string }; trace?: { candidate_ids?: string[]; retrieval_signature?: string; retrieval_action?: string; retrieval_strategy?: string } };
 type SlotStatus = 'have' | 'buy' | 'unknown' | 'skip';
 type ConfirmedChecklist = {
   goal: string; budget: number | null; destination: string | null; preference: string;
@@ -14,6 +14,7 @@ type TestRun = {
   start_time: string; end_time: string; duration_sec: number; user_turns: number; assistant_turns: number;
   clarify_turns: number; plan_updates: number; compare_selection_actions: number; model_compare_requests: number;
   product_candidates_returned: number;
+  retrieval_actions: string; retrieval_strategies: string; conversation_transcript: string;
   plan_task_slots: number; plan_must_buy_slots: number; plan_optional_slots: number; plan_reusable_items: number;
   plan_not_buy_items: number; plan_unknown_items: number; budget_limit_cny: number | null;
   minimum_required_total_cny: number | null; optional_total_cny: number | null; budget_status: string;
@@ -24,8 +25,8 @@ type TestRun = {
 };
 
 const STORAGE_KEY = 'shopmind-usability-tests-v1';
-const VERSION = 'live-chat-v5-structured-checklist';
-const columns: (keyof TestRun)[] = ['test_id', 'tester_id', 'scenario_id', 'version', 'device_type', 'start_time', 'end_time', 'duration_sec', 'user_turns', 'assistant_turns', 'clarify_turns', 'plan_updates', 'plan_task_slots', 'plan_must_buy_slots', 'plan_optional_slots', 'plan_reusable_items', 'plan_not_buy_items', 'plan_unknown_items', 'budget_limit_cny', 'minimum_required_total_cny', 'optional_total_cny', 'budget_status', 'compare_selection_actions', 'model_compare_requests', 'product_candidates_returned', 'task_completed', 'completion_step', 'abandon_reason', 'satisfaction_1to5', 'ease_1to5', 'trust_1to5', 'plan_completeness_1to5', 'omission_confidence_1to5', 'budget_understanding_1to5', 'tradeoff_understanding_1to5', 'decision_confidence_1to5', 'stuck_step', 'error_count'];
+const VERSION = 'live-chat-v6-agent-retrieval';
+const columns: (keyof TestRun)[] = ['test_id', 'tester_id', 'scenario_id', 'version', 'device_type', 'start_time', 'end_time', 'duration_sec', 'user_turns', 'assistant_turns', 'clarify_turns', 'plan_updates', 'plan_task_slots', 'plan_must_buy_slots', 'plan_optional_slots', 'plan_reusable_items', 'plan_not_buy_items', 'plan_unknown_items', 'budget_limit_cny', 'minimum_required_total_cny', 'optional_total_cny', 'budget_status', 'compare_selection_actions', 'model_compare_requests', 'product_candidates_returned', 'retrieval_actions', 'retrieval_strategies', 'conversation_transcript', 'task_completed', 'completion_step', 'abandon_reason', 'satisfaction_1to5', 'ease_1to5', 'trust_1to5', 'plan_completeness_1to5', 'omission_confidence_1to5', 'budget_understanding_1to5', 'tradeoff_understanding_1to5', 'decision_confidence_1to5', 'stuck_step', 'error_count'];
 
 function readRuns(): TestRun[] {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
@@ -51,6 +52,8 @@ export default function LiveChat() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<Result>();
+  const [planConfirmed, setPlanConfirmed] = useState(false);
+  const [retrievalContext, setRetrievalContext] = useState<{ signature: string; candidate_ids: string[] }>();
   const [slotStatus, setSlotStatus] = useState<Record<string, SlotStatus>>({});
   const [planBudget, setPlanBudget] = useState('');
   const [planPriority, setPlanPriority] = useState('');
@@ -76,9 +79,11 @@ export default function LiveChat() {
     setTestOpen(true);
     const start = new Date();
     setMessages([]); setResult(undefined); setError(''); setSelected([]);
+    setPlanConfirmed(false);
+    setRetrievalContext(undefined); setSlotStatus({});
     setActiveRun({ test_id: crypto.randomUUID(), tester_id: testerId.trim(), scenario_id: scenarioId.trim(), version: VERSION,
       device_type: matchMedia('(max-width: 760px)').matches ? 'mobile' : 'desktop', start_time: start.toISOString(), end_time: '', duration_sec: 0,
-      user_turns: 0, assistant_turns: 0, clarify_turns: 0, plan_updates: 0, compare_selection_actions: 0, model_compare_requests: 0, product_candidates_returned: 0,
+      user_turns: 0, assistant_turns: 0, clarify_turns: 0, plan_updates: 0, compare_selection_actions: 0, model_compare_requests: 0, product_candidates_returned: 0, retrieval_actions: '', retrieval_strategies: '', conversation_transcript: '',
       plan_task_slots: 0, plan_must_buy_slots: 0, plan_optional_slots: 0, plan_reusable_items: 0, plan_not_buy_items: 0, plan_unknown_items: 0,
       budget_limit_cny: null, minimum_required_total_cny: null, optional_total_cny: null, budget_status: '',
       task_completed: 'running', completion_step: '', abandon_reason: '', satisfaction_1to5: '', ease_1to5: '', trust_1to5: '',
@@ -93,18 +98,20 @@ export default function LiveChat() {
     setActiveRun(null);
   }
 
-  async function send(query = input, retry = false, checklist?: ConfirmedChecklist) {
+  async function send(query = input, retry = false, checklist?: ConfirmedChecklist, newSession = false) {
     if (!query.trim() || busy) return;
     if (!base) { setError('真实对话服务正在部署，请稍后再试。'); return; }
-    const history = retry ? messages : [...messages, { role: 'user' as const, content: query }];
+    const history = retry ? messages : newSession ? [{ role: 'user' as const, content: query }] : [...messages, { role: 'user' as const, content: query }];
     if (activeRun && !retry) patchRun(run => ({ ...run, user_turns: run.user_turns + 1 }));
     setMessages(history); setInput(''); setBusy(true); setError('');
     try {
       const response = await fetch(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ history, ...(checklist ? { checklist } : {}) }), signal: AbortSignal.timeout(65000) });
+        body: JSON.stringify({ history, ...(checklist ? { checklist } : {}), ...(!newSession && retrievalContext ? { retrieval_context: retrievalContext } : {}) }), signal: AbortSignal.timeout(65000) });
       const data = await response.json() as Result & { error?: string };
       if (!response.ok) throw new Error(data.error || '服务暂时不可用');
       setResult(data); setSelected([]);
+      setPlanConfirmed(false);
+      if (data.trace?.retrieval_signature && data.trace.candidate_ids) setRetrievalContext({ signature: data.trace.retrieval_signature, candidate_ids: data.trace.candidate_ids });
       if (data.plan.stage === 'plan') {
         setSlotStatus({});
         setPlanBudget(data.plan.budget ? String(data.plan.budget) : '');
@@ -122,7 +129,11 @@ export default function LiveChat() {
           plan_not_buy_items: data.plan.not_buy?.length ?? 0, plan_unknown_items: data.plan.unknowns?.length ?? 0,
           budget_limit_cny: data.budget?.limit ?? data.plan.budget, minimum_required_total_cny: data.budget?.minimum_total ?? null,
           optional_total_cny: data.budget?.optional_total ?? null,
-          budget_status: data.budget?.status ?? 'not_calculated', last_conditions: state };
+          budget_status: data.budget?.status ?? 'not_calculated',
+          retrieval_actions: [run.retrieval_actions, data.trace?.retrieval_action].filter(Boolean).join('|'),
+          retrieval_strategies: [run.retrieval_strategies, data.trace?.retrieval_strategy].filter(Boolean).join('|'),
+          conversation_transcript: [run.conversation_transcript, JSON.stringify({ user: history[history.length - 1]?.content, assistant: data.text, plan: data.plan, groups: data.groups, trace: data.trace })].filter(Boolean).join('\n'),
+          last_conditions: state };
       });
       setMessages([...history, { role: 'assistant', content: data.text + '\n' + data.groups.map((g: Result['groups'][number]) => `${g.name}: ${g.products.map(p => `${p.id} ${p.title}`).join('、')}`).join('\n') }]);
     } catch (e) { if (activeRun) patchRun(run => ({ ...run, error_count: run.error_count + 1 })); setError(e instanceof Error ? e.message : '请求失败，请重试'); }
@@ -131,6 +142,13 @@ export default function LiveChat() {
   const requiredCount = result?.groups.filter(group => group.priority === 'must_buy').length ?? 0;
   const optionalCount = result?.groups.filter(group => group.priority === 'optional').length ?? 0;
   const checklistReady = Object.values(slotStatus).some(status => status !== undefined);
+  function confirmPlan() {
+    if (!result?.groups.length || planConfirmed) return;
+    const message = '采购方案已确认。本演示仅记录方案确认，不会加入真实购物车或创建订单。';
+    setPlanConfirmed(true);
+    setMessages(current => [...current, { role: 'assistant', content: message }]);
+    if (activeRun) patchRun(run => ({ ...run, completion_step: 'confirmed', conversation_transcript: [run.conversation_transcript, JSON.stringify({ assistant: message, event: 'plan_confirmed' })].filter(Boolean).join('\n') }));
+  }
   function confirmChecklist() {
     if (!result || !checklistReady) return;
     const required = result.plan.tasks ?? [];
@@ -185,12 +203,12 @@ export default function LiveChat() {
         <label>卡点/未完成原因<input value={survey.stuck_step} onChange={e => setSurvey(s => ({ ...s, stuck_step: e.target.value }))} placeholder="可留空；不要填写个人隐私" /></label>
         <button type="button" disabled={busy} onClick={finishTest}>结束并保存</button>
       </div>}
-      <div className="test-panel-actions"><button type="button" disabled={!runs.length && !activeRun} onClick={() => downloadCsv(activeRun ? [...runs, { ...activeRun, duration_sec: Math.round((Date.now() - new Date(activeRun.start_time).getTime()) / 1000) }] : runs)}>导出 CSV（{runs.length + (activeRun ? 1 : 0)}）</button><button type="button" disabled={!runs.length && !activeRun} onClick={() => { if (confirm('清除这台设备保存的所有测试记录？')) { setRuns([]); setActiveRun(null); } }}>清空本机记录</button><small>自动记录清单槽位、预算状态和方案变化；体验评分由测试者填写。只存本机浏览器，不上传对话内容。</small></div></>}
+      <div className="test-panel-actions"><button type="button" disabled={!runs.length && !activeRun} onClick={() => downloadCsv(activeRun ? [...runs, { ...activeRun, duration_sec: Math.round((Date.now() - new Date(activeRun.start_time).getTime()) / 1000) }] : runs)}>导出 CSV（{runs.length + (activeRun ? 1 : 0)}）</button><button type="button" disabled={!runs.length && !activeRun} onClick={() => { if (confirm('清除这台设备保存的所有测试记录？')) { setRuns([]); setActiveRun(null); } }}>清空本机记录</button><small>自动记录清单槽位、预算状态、检索路径和逐轮对话；只保存在本机浏览器，可随 CSV 导出。</small></div></>}
     </div>
     <div className="live-console">
     <div className="live-console-head"><strong>ShopMind Assistant</strong><span>{busy ? '正在整理最小采购方案' : '准备好帮你规划'}</span></div>
-    <div className="live-actions"><button disabled={busy} onClick={() => { setMessages([]); setResult(undefined); setError(''); setSelected([]); setSlotStatus({}); setPlanBudget(''); setPlanPriority(''); }}>新对话</button>
-      {['周末去海边两天，帮我准备购物清单', '想给妈妈买礼物，不知道买什么', '第一次租房入住，不知道要准备什么'].map(q => <button disabled={busy} key={q} onClick={() => void send(q)}>{q}</button>)}</div>
+    <div className="live-actions"><button disabled={busy} onClick={() => { setMessages([]); setResult(undefined); setPlanConfirmed(false); setError(''); setSelected([]); setSlotStatus({}); setPlanBudget(''); setPlanPriority(''); setRetrievalContext(undefined); }}>新对话</button>
+      {['周末去海边两天，帮我准备购物清单', '想给妈妈买礼物，不知道买什么', '第一次租房入住，不知道要准备什么'].map(q => <button disabled={busy} key={q} onClick={() => { setMessages([]); setResult(undefined); setPlanConfirmed(false); setRetrievalContext(undefined); setSlotStatus({}); setSelected([]); setError(''); void send(q, false, undefined, true); }}>{q}</button>)}</div>
     <div className="live-messages" aria-live="polite">{messages.map((m, i) => <div key={i} className={`live-message ${m.role}`}><small>{m.role === 'user' ? '你' : 'ShopMind'}</small><p>{m.role === 'assistant' ? <>{m.content.split('\n').filter(line => !/^.+: P\d/.test(line)).join('\n').replace(/\*\*/g, '').replace(/^\s*[-*]\s+/gm, '• ')}{result?.plan.stage === 'plan' && i === messages.length - 1 ? '\n\n请在下方逐项确认已有、需要补或暂不需要，再确认预算和优先级。' : ''}</> : m.content}</p></div>)}
       {!messages.length && <div className="live-message assistant"><small>ShopMind</small><p>还没想好商品名也没关系。说说你要完成的生活任务，我会先问清会改变清单的场景条件，再列准备品类。</p></div>}
       {busy && <div className="live-status" role="status"><span className="live-spinner" />正在理解需求、检索并整理方案…</div>}
@@ -208,12 +226,12 @@ export default function LiveChat() {
         {!!result.plan.optional?.length && <div className="checklist-group optional-slots"><h3>按需准备</h3>{result.plan.optional.map(item => {
           const key = `optional:${item}`;
           return <div className="checklist-item" key={key}><b>{item}</b><div role="group" aria-label={`${item}状态`}>
-            {([['have', '已有'], ['buy', '想购买'], ['skip', '先不买'], ['unknown', '还没确认']] as [SlotStatus, string][]).map(([status, label]) => <button type="button" key={status} className={slotStatus[key] === status ? 'selected' : ''} aria-pressed={slotStatus[key] === status} onClick={() => setSlotStatus(current => ({ ...current, [key]: current[key] === status ? 'unknown' : status }))}>{label}</button>)}
+            {([['have', '已有'], ['buy', '这次要买'], ['skip', '之后再决定'], ['unknown', '还不确定']] as [SlotStatus, string][]).map(([status, label]) => <button type="button" key={status} className={slotStatus[key] === status ? 'selected' : ''} aria-pressed={slotStatus[key] === status} onClick={() => setSlotStatus(current => ({ ...current, [key]: current[key] === status ? 'unknown' : status }))}>{label}</button>)}
           </div></div>;
         })}</div>}
         {!!result.plan.prep?.length && <div className="checklist-reminders"><h3>出发前提醒（不需要购买）</h3><p>{result.plan.prep.join(' · ')}</p></div>}
         <div className="checklist-preferences"><label>预算上限（商品价）<span><input type="number" min="1" value={planBudget} onChange={event => setPlanBudget(event.target.value)} placeholder="可留空" /> 元</span></label><label>优先考虑<select value={planPriority} onChange={event => setPlanPriority(event.target.value)}><option value="">暂不选，让 ShopMind 根据清单追问</option><option value="lightweight">轻便少占空间</option><option value="value">实惠 / 性价比</option><option value="quality">品质耐用</option><option value="complete">准备周全</option><option value="appearance">美观协调</option></select></label></div>
-        <div className="checklist-next"><span>{checklistReady ? '只会为“需要购买 / 想购买”的项目找商品；已有、先不买和还没确认的项目不会推荐。' : '请先标记至少一项；其他项目可以保持还没确认。'}</span><button type="button" disabled={busy || !checklistReady} onClick={confirmChecklist}>确认清单，匹配商品 →</button></div>
+        <div className="checklist-next"><span>{checklistReady ? '只为“需要购买 / 这次要买”的项目找商品；已有、之后再决定和还不确定的项目不会推荐。' : '请先标记至少一项；其他项目可以保持还没确认。'}</span><button type="button" disabled={busy || !checklistReady} onClick={confirmChecklist}>确认清单，匹配商品 →</button></div>
       </section>}
       {result.plan.stage !== 'clarify' && result.plan.stage !== 'plan' && <div className="plan-readout">
         <div><b>必备任务槽位</b><span>{result.plan.tasks?.join(' · ') || '按当前场景整理'}</span></div>
@@ -222,6 +240,7 @@ export default function LiveChat() {
       </div>}
       {result.budget && <p className={`budget-readout ${result.budget.status === 'within_budget' ? 'ok' : 'over'}`}>方案总结：必买 {requiredCount} 件，最低商品价 {result.budget.minimum_total} CNY{result.budget.limit ? ` / 预算上限 ${result.budget.limit} CNY` : ''}；可选 {optionalCount} 项、{result.budget.optional_total} CNY（不计入必需总价，不含运费）。{result.budget.status !== 'within_budget' && ' 必需项已超出预算，需要调整。'}</p>}
       {result.groups.map(g => <div key={g.name} className={`live-group ${g.priority}`}><h3>{g.name}<small>{g.priority === 'must_buy' ? '已确认待购' : g.priority === 'candidate' ? '待核对候选' : '按需准备'}</small></h3><div className="live-products">{g.products.map((p, index) => <article key={p.id} className="live-product"><div className={`live-product-art tone-${index % 3}`}><span>{p.category}</span><small>{p.subcategory}</small></div><div className="live-product-copy"><div className="live-product-meta"><span>{p.brand}</span><strong>{p.price} {p.currency}</strong></div><h4>{p.title}</h4><p>{p.reason}</p><p className="live-tradeoff"><b>取舍</b>{p.tradeoff}</p><label><input type="checkbox" checked={selected.includes(p.id)} disabled={busy || (!selected.includes(p.id) && selected.length >= 3)} onChange={() => { setSelected(selected.includes(p.id) ? selected.filter(id => id !== p.id) : [...selected, p.id]); if (activeRun) patchRun(run => ({ ...run, compare_selection_actions: (run.compare_selection_actions ?? 0) + 1 })); }} /> 加入比较</label></div></article>)}</div></div>)}
+      {result.groups.length > 0 && <button type="button" className="confirm-plan-button" disabled={busy || planConfirmed} onClick={confirmPlan}>{planConfirmed ? '方案已确认' : '确认这套采购方案'}</button>}
       {selected.length >= 2 && <button disabled={busy} onClick={() => { if (activeRun) patchRun(run => ({ ...run, model_compare_requests: (run.model_compare_requests ?? 0) + 1 })); void send(`比较这些商品 ${selected.join('、')}，结合我的目标说明适配差异、价格差、取舍和未知，并选出建议款；互斥候选不叠加，方案总额以界面校验为准`); }}>比较已选商品</button>}</>}
     <form className="demo-composer" onSubmit={e => { e.preventDefault(); void send(); }}><input maxLength={1500} value={input} onChange={e => setInput(e.target.value)} placeholder="说说你要完成的生活任务，或已经卡住的选择…" aria-label="真实对话输入" /><button disabled={busy || !input.trim()} type="submit" aria-label="发送真实对话" title="发送">↑</button></form>
     </div>
