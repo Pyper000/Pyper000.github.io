@@ -263,7 +263,7 @@ async function model(messages) {
     body: JSON.stringify({ model: process.env.LLM_MODEL || 'deepseek-ai/DeepSeek-V3.2',
       messages, response_format: { type: 'json_object' }, temperature: 0.3,
       max_tokens: 3200, enable_thinking: false }),
-    signal: AbortSignal.timeout(28000),
+    signal: AbortSignal.timeout(42000),
   });
   if (!response.ok) throw new Error(`PROVIDER_${response.status}`);
   const body = await response.json();
