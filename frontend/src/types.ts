@@ -5,7 +5,6 @@ export type TradeEventType =
   | "tool.invoke"
   | "tool.result"
   | "token.delta"
-  | "model.call"
   | "plan.update"
   | "context.compressed"
   | "model.fallback"
